@@ -252,7 +252,7 @@ const AdminController = {
                 '¿Estás seguro de desactivar este usuario?',
                 'Confirmar desactivación'
             );
-            
+
             if (!confirmado) return false;
 
             await window.AuthModel.deleteUser(userId);
@@ -262,6 +262,49 @@ const AdminController = {
             console.error('Error eliminando usuario:', err);
             window.ZENGO?.toast('Error al desactivar: ' + err.message, 'error');
             return false;
+        }
+    },
+
+    // ═══════════════════════════════════════════════════════════
+    // EXPORTAR CÍCLICO CONFIRMADO A EXCEL
+    // ═══════════════════════════════════════════════════════════
+    async exportarCiclico(tarea) {
+        if (!tarea) { window.ZENGO?.toast('No hay cíclico seleccionado', 'error'); return; }
+        try {
+            const productos = tarea.productos || [];
+            const rows = productos.map((p, i) => {
+                const total = p.total ?? (p.conteos?.reduce((s, c) => s + (c.cantidad || 0), 0) ?? 0);
+                const diferencia = total - (p.existencia || 0);
+                const ubicaciones = p.conteos?.length
+                    ? [...new Set(p.conteos.map(c => c.ubicacion).filter(Boolean))].join(', ')
+                    : '';
+                return {
+                    'N°': i + 1,
+                    'UPC': p.upc || '',
+                    'SKU / NetSuite': p.sku || '',
+                    'Descripción': p.descripcion || '',
+                    'Categoría': p.categoria || tarea.categoria || '',
+                    'Precio': p.precio || 0,
+                    'Existencia Sistema': p.existencia || 0,
+                    'Total Contado': total,
+                    'Diferencia': diferencia,
+                    'Ubicación': ubicaciones,
+                    'Hallazgo': p.hallazgo_estado || '',
+                    'Estado': tarea.estado || ''
+                };
+            });
+
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            const fecha = (tarea.fecha_aprobacion || new Date().toISOString()).split('T')[0];
+            const nombre = `${tarea.categoria || 'Ciclico'}_${fecha}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+            XLSX.utils.book_append_sheet(wb, ws, nombre.substring(0, 31));
+            XLSX.writeFile(wb, `ZENGO_Ciclico_${nombre}.xlsx`);
+
+            window.ZENGO?.toast('Exportado correctamente', 'success');
+        } catch (err) {
+            console.error('Error exportando cíclico:', err);
+            window.ZENGO?.toast('Error al exportar', 'error');
         }
     }
 };

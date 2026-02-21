@@ -103,22 +103,29 @@ const LocationModel = {
 
     // ═══════════════════════════════════════════════════════════
     // GUARDAR UBICACIONES DE UNA TAREA AL ENTREGAR A ADMIN
-    // Lee db.conteos por tarea_id, el último conteo con ubicación
-    // por UPC gana (sobreescribe el histórico previo)
+    // Lee tarea.productos[].conteos[] (embedded), el último
+    // conteo con ubicación por UPC gana (sobrescribe el histórico)
     // ═══════════════════════════════════════════════════════════
     async guardarUbicacionesTarea(tarea) {
         try {
-            const conteos = await window.db.conteos
-                .where('tarea_id').equals(tarea.id).toArray();
-
-            // Ascendente: la última iteración por UPC es la ubicación más reciente
-            conteos.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-
             const ubicPorUpc = {};
-            conteos.forEach(c => {
-                if (c.ubicacion && c.ubicacion.trim()) {
-                    ubicPorUpc[c.upc] = { ubicacion: c.ubicacion.trim(), auxiliar_id: c.auxiliar_id };
-                }
+
+            // Los conteos están embedded en cada producto de la tarea
+            (tarea.productos || []).forEach(prod => {
+                if (!prod.upc || !prod.conteos || prod.conteos.length === 0) return;
+
+                // Ascendente por timestamp: la última ubicación por UPC gana
+                const ordenados = [...prod.conteos].sort(
+                    (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
+                );
+                ordenados.forEach(c => {
+                    if (c.ubicacion && c.ubicacion.trim()) {
+                        ubicPorUpc[prod.upc] = {
+                            ubicacion: c.ubicacion.trim(),
+                            auxiliar_id: tarea.auxiliar_id
+                        };
+                    }
+                });
             });
 
             for (const [upc, data] of Object.entries(ubicPorUpc)) {

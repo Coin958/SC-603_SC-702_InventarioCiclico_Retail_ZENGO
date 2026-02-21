@@ -41,8 +41,8 @@ const AdminView = {
                     <a href="#" class="nav-item" data-section="consulta" onclick="AdminView.showSection('consulta')">
                         <i class="fas fa-search"></i> <span>Modo Consulta</span>
                     </a>
-                    <a href="#" class="nav-item" data-section="merma" onclick="AdminView.showSection('merma')">
-                        <i class="fas fa-chart-pie"></i> <span>Análisis Merma</span>
+                    <a href="#" class="nav-item" data-section="ciclicos" onclick="AdminView.showSection('ciclicos')">
+                        <i class="fas fa-clipboard-check"></i> <span>Cíclicos Confirmados</span>
                     </a>
                     <a href="#" class="nav-item" data-section="auditoria" onclick="AdminView.showSection('auditoria')">
                         <i class="fas fa-history"></i> <span>Auditoría</span>
@@ -77,9 +77,6 @@ const AdminView = {
                             <span id="sync-text">ONLINE</span>
                         </div>
                         <button class="btn-action" onclick="AdminView.refreshData()"><i class="fas fa-sync-alt"></i></button>
-                        <button class="btn-export" onclick="AdminController.exportDiferencias()">
-                            <i class="fas fa-file-excel"></i> EXPORTAR
-                        </button>
                     </div>
                 </header>
 
@@ -164,11 +161,49 @@ const AdminView = {
                 </div>
 
                 <!-- Otras secciones -->
-                <div id="section-merma" class="section-content" style="display:none;">
-                    <section class="glass" style="padding:30px;">
-                        <h2><i class="fas fa-chart-pie"></i> Análisis de Merma</h2>
-                        <p class="text-dim">Próximamente: Gráficos y análisis detallado</p>
-                    </section>
+                <!-- CÍCLICOS CONFIRMADOS -->
+                <div id="section-ciclicos" class="section-content" style="display:none;">
+                    <!-- Vista lista -->
+                    <div id="ciclicos-lista-wrap">
+                        <div class="section-header">
+                            <h2><i class="fas fa-clipboard-check"></i> Cíclicos Confirmados</h2>
+                        </div>
+                        <div class="glass ciclicos-card">
+                            <div id="ciclicos-lista">
+                                <div class="empty-state"><i class="fas fa-clipboard-check"></i><p>Cargando...</p></div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Vista detalle -->
+                    <div id="ciclicos-detalle-wrap" style="display:none;">
+                        <div class="section-header">
+                            <div class="ciclico-header-info">
+                                <button class="btn-secondary" onclick="AdminView.cerrarCiclicoAdmin()"><i class="fas fa-arrow-left"></i> Volver</button>
+                                <div>
+                                    <h2 id="ciclico-titulo" style="margin:0;font-size:18px;"></h2>
+                                    <span id="ciclico-meta" class="text-dim"></span>
+                                </div>
+                            </div>
+                            <div style="display:flex;gap:10px;">
+                                <button class="btn-danger" onclick="AdminView.rechazarCiclico()">
+                                    <i class="fas fa-undo"></i> Devolver al Jefe
+                                </button>
+                                <button class="btn-export" onclick="AdminController.exportarCiclico(AdminView._ciclicoDetalle)">
+                                    <i class="fas fa-file-excel"></i> Exportar Excel
+                                </button>
+                            </div>
+                        </div>
+                        <div class="glass ciclicos-card" style="overflow-x:auto;">
+                            <table class="admin-table">
+                                <thead><tr>
+                                    <th>#</th><th>UPC</th><th>SKU</th><th>DESCRIPCIÓN</th>
+                                    <th>CAT.</th><th>PRECIO</th><th>EXIST.</th>
+                                    <th>CONTADO</th><th>DIFERENCIA</th><th>UBICACIÓN</th><th>HALLAZGO</th>
+                                </tr></thead>
+                                <tbody id="ciclico-admin-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
                 <div id="section-auditoria" class="section-content" style="display:none;">
                     <section class="glass" style="padding:30px;">
@@ -378,6 +413,7 @@ const AdminView = {
         document.querySelector(`[data-section="${sectionId}"]`)?.classList.add('active');
         if (sectionId === 'consulta') this._iniciarScannerConsulta();
         if (sectionId === 'usuarios') this.loadUsuarios();
+        if (sectionId === 'ciclicos') this.loadCiclicosConfirmados();
     },
 
     closeModal() { document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none'); },
@@ -467,6 +503,137 @@ const AdminView = {
         await window.db.clearAll();
         window.ZENGO?.toast('BD limpiada', 'success');
         this.loadDashboardData();
+    },
+
+    // ═══════════════════════════════════════════════════════════
+    // CÍCLICOS CONFIRMADOS
+    // Carga desde Supabase (multi-dispositivo); Dexie como fallback offline
+    // ═══════════════════════════════════════════════════════════
+    async loadCiclicosConfirmados() {
+        const listEl = document.getElementById('ciclicos-lista');
+        if (!listEl) return;
+        listEl.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i><p>Cargando...</p></div>';
+
+        let tareas = [];
+        try {
+            if (navigator.onLine && window.supabaseClient) {
+                const { data, error } = await window.supabaseClient
+                    .from('tareas')
+                    .select('*')
+                    .eq('estado', 'aprobado_jefe')
+                    .order('fecha_aprobacion', { ascending: false });
+                if (!error && data?.length) tareas = data;
+            }
+            if (!tareas.length) {
+                const local = await window.db.tareas.toArray();
+                tareas = local
+                    .filter(t => t.estado === 'aprobado_jefe')
+                    .sort((a, b) => new Date(b.fecha_aprobacion) - new Date(a.fecha_aprobacion));
+            }
+        } catch (e) { console.error('Error cargando cíclicos:', e); }
+
+        this._ciclicosTareas = tareas;
+
+        if (!tareas.length) {
+            listEl.innerHTML = '<div class="empty-state"><i class="fas fa-clipboard-check"></i><p>No hay cíclicos confirmados aún</p></div>';
+            return;
+        }
+
+        listEl.innerHTML = `
+            <table class="admin-table">
+                <thead><tr>
+                    <th>CATEGORÍA</th><th>AUXILIAR</th><th>CONFIRMADO POR</th>
+                    <th>PRODUCTOS</th><th>FECHA</th><th>ACCIÓN</th>
+                </tr></thead>
+                <tbody>
+                    ${tareas.map(t => {
+                        const prods = t.productos || [];
+                        const contados = prods.filter(p => p.conteos?.length > 0).length;
+                        return `<tr>
+                            <td><strong>${t.categoria || '—'}</strong></td>
+                            <td>${t.auxiliar_nombre || '—'}</td>
+                            <td>${t.aprobado_por || '—'}</td>
+                            <td>${contados} / ${prods.length}</td>
+                            <td class="mono">${t.fecha_aprobacion ? new Date(t.fecha_aprobacion).toLocaleDateString('es-CR') : '—'}</td>
+                            <td>
+                                <button class="btn-revisar" onclick="AdminView.abrirCiclicoAdmin('${t.id}')">
+                                    <i class="fas fa-eye"></i> Revisar
+                                </button>
+                            </td>
+                        </tr>`;
+                    }).join('')}
+                </tbody>
+            </table>`;
+    },
+
+    abrirCiclicoAdmin(id) {
+        const tarea = this._ciclicosTareas?.find(t => String(t.id) === String(id));
+        if (!tarea) return;
+        this._ciclicoDetalle = tarea;
+
+        document.getElementById('ciclicos-lista-wrap').style.display = 'none';
+        document.getElementById('ciclicos-detalle-wrap').style.display = 'block';
+        document.getElementById('ciclico-titulo').textContent = `${tarea.categoria || '—'} — ${tarea.auxiliar_nombre || '—'}`;
+        document.getElementById('ciclico-meta').textContent =
+            `Confirmado por ${tarea.aprobado_por || '—'} · ${tarea.fecha_aprobacion ? new Date(tarea.fecha_aprobacion).toLocaleString('es-CR') : ''}`;
+        document.getElementById('ciclico-admin-tbody').innerHTML = this.renderTablaAdmin(tarea.productos || []);
+    },
+
+    cerrarCiclicoAdmin() {
+        this._ciclicoDetalle = null;
+        document.getElementById('ciclicos-detalle-wrap').style.display = 'none';
+        document.getElementById('ciclicos-lista-wrap').style.display = 'block';
+    },
+
+    async rechazarCiclico() {
+        if (!this._ciclicoDetalle) return;
+        const motivo = prompt('Motivo del rechazo (requerido):');
+        if (!motivo || !motivo.trim()) return;
+        const session = JSON.parse(localStorage.getItem('zengo_session') || '{}');
+        const tarea = this._ciclicoDetalle;
+        const cambios = {
+            estado: 'devuelto_admin',
+            motivo_rechazo: motivo.trim(),
+            rechazado_por: session.name || 'Admin',
+            fecha_rechazo: new Date().toISOString()
+        };
+        try {
+            if (navigator.onLine && window.supabaseClient) {
+                await window.supabaseClient.from('tareas').update(cambios).eq('id', tarea.id);
+            }
+        } catch (e) { console.error('Error sync rechazo admin:', e); }
+        await window.db.tareas.update(tarea.id, cambios);
+        window.ZENGO?.toast('Devuelto al Jefe ✓', 'success');
+        this.cerrarCiclicoAdmin();
+        await this.loadCiclicosConfirmados();
+    },
+
+    renderTablaAdmin(productos) {
+        if (!productos.length) return '<tr><td colspan="11" class="text-center">Sin productos</td></tr>';
+        return productos.map((p, i) => {
+            const total = p.total ?? (p.conteos?.reduce((s, c) => s + (c.cantidad || 0), 0) ?? 0);
+            const diferencia = total - (p.existencia || 0);
+            const diffClass = diferencia < 0 ? 'text-error' : diferencia > 0 ? 'text-success' : '';
+            const ubicaciones = p.conteos?.length
+                ? [...new Set(p.conteos.map(c => c.ubicacion).filter(Boolean))].join(', ')
+                : '—';
+            const hallazgo = p.hallazgo_estado
+                ? `<span class="status-badge ${p.hallazgo_estado === 'aprobado' ? 'active' : 'inactive'}">${p.hallazgo_estado}</span>`
+                : '—';
+            return `<tr>
+                <td>${i + 1}</td>
+                <td class="mono" style="font-size:11px">${p.upc || '—'}</td>
+                <td>${p.sku || '—'}</td>
+                <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.descripcion || ''}">${p.descripcion || '—'}</td>
+                <td>${p.categoria || '—'}</td>
+                <td>₡${(p.precio || 0).toLocaleString()}</td>
+                <td>${p.existencia || 0}</td>
+                <td><strong>${total}</strong></td>
+                <td class="${diffClass}"><strong>${diferencia >= 0 ? '+' : ''}${diferencia}</strong></td>
+                <td>${ubicaciones}</td>
+                <td>${hallazgo}</td>
+            </tr>`;
+        }).join('');
     },
 
     // ═══════════════════════════════════════════════════════════
@@ -594,6 +761,10 @@ const AdminView = {
 .text-error { color: #ef4444 !important; }
 .text-center { text-align: center; }
 code { background: rgba(255,255,255,0.1); padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+.ciclicos-card { padding: 20px; border-radius: 16px; }
+.ciclico-header-info { display: flex; align-items: center; gap: 16px; }
+.btn-revisar { background: rgba(59,130,246,0.15); color: #3b82f6; border: none; padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+.btn-revisar:hover { background: rgba(59,130,246,0.25); }
 @media (max-width: 1200px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } .admin-main-grid { grid-template-columns: 1fr; } }
 @media (max-width: 768px) { .sidebar { transform: translateX(-100%); } .sidebar.collapsed { transform: translateX(0); width: 260px; } .main-content { margin-left: 0; } .mobile-menu { display: block; } .metrics-grid { grid-template-columns: 1fr; } .usuarios-stats { grid-template-columns: 1fr; } }
         `;

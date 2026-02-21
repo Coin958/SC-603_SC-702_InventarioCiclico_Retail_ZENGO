@@ -24,9 +24,45 @@ const ScannerController = {
             }
 
             if (producto) {
-                // Solo ubicaciones canónicas: las guardadas al momento de aprobado_jefe
-                const ubicaciones = await window.LocationModel.getUbicacionesUnicas(producto.upc);
-                return { encontrado: true, producto, ubicaciones };
+                // Ubicaciones locales (Dexie — dispositivo del jefe)
+                const ubicLocal = await window.LocationModel.getUbicacionesUnicas(producto.upc);
+                const todasUbic = new Set(ubicLocal);
+
+                // Escanear tareas locales (Dexie) — cubre modo offline y cualquier estado
+                try {
+                    const tareasLocales = await window.db.tareas.toArray();
+                    tareasLocales.forEach(t => {
+                        (t.productos || []).forEach(prod => {
+                            if (prod.upc === producto.upc) {
+                                (prod.conteos || []).forEach(c => {
+                                    if (c.ubicacion && c.ubicacion.trim()) todasUbic.add(c.ubicacion.trim());
+                                });
+                            }
+                        });
+                    });
+                } catch (e) {}
+
+                // Ubicaciones desde TODAS las tareas en Supabase (sin filtro de estado)
+                if (navigator.onLine && window.supabaseClient) {
+                    try {
+                        const { data: tareasData } = await window.supabaseClient
+                            .from('tareas')
+                            .select('productos');
+                        if (tareasData) {
+                            tareasData.forEach(t => {
+                                (t.productos || []).forEach(prod => {
+                                    if (prod.upc === producto.upc) {
+                                        (prod.conteos || []).forEach(c => {
+                                            if (c.ubicacion && c.ubicacion.trim()) todasUbic.add(c.ubicacion.trim());
+                                        });
+                                    }
+                                });
+                            });
+                        }
+                    } catch (e) {}
+                }
+
+                return { encontrado: true, producto, ubicaciones: [...todasUbic] };
             }
             return { encontrado: false, producto: null, ubicaciones: [] };
         } catch (err) {

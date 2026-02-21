@@ -30,6 +30,7 @@ const AuxiliarView = {
                 <nav class="sidebar-nav">
                     <a href="#" class="nav-item active" data-section="ciclico" onclick="AuxiliarView.showSection('ciclico')"><i class="fas fa-clipboard-list"></i><span>Mi Ciclico</span></a>
                     <a href="#" class="nav-item" data-section="consulta" onclick="AuxiliarView.showSection('consulta')"><i class="fas fa-search"></i><span>Modo Consulta</span></a>
+                    <a href="#" class="nav-item" data-section="devueltos" onclick="AuxiliarView.showSection('devueltos')"><i class="fas fa-undo"></i><span>Devueltos</span><span class="badge-alert" id="devueltos-aux-count" style="display:none;">0</span></a>
                     <div class="nav-spacer"></div>
                     <a href="#" class="nav-item theme-toggle" onclick="AuxiliarView.toggleTheme()"><i class="fas fa-moon"></i><span>Modo Oscuro</span></a>
                     <a href="#" class="nav-item logout" onclick="AuthController.logout()"><i class="fas fa-power-off"></i><span>Cerrar Sesion</span></a>
@@ -125,6 +126,18 @@ const AuxiliarView = {
                             <div class="consulta-v2-resultado glass" id="aux-consulta-resultado">
                                 <div class="empty-state"><i class="fas fa-search"></i><p>Busca un producto por descripcion, UPC o SKU</p></div>
                             </div>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- DEVUELTOS POR JEFE -->
+                <div id="section-devueltos" class="section-content" style="display:none;">
+                    <section>
+                        <div class="section-header">
+                            <h2><i class="fas fa-undo"></i> Cíclicos Devueltos</h2>
+                        </div>
+                        <div class="glass" style="padding:20px;border-radius:16px;" id="devueltos-aux-list">
+                            <div class="empty-state"><p>Sin cíclicos devueltos</p></div>
                         </div>
                     </section>
                 </div>
@@ -646,6 +659,7 @@ const AuxiliarView = {
         document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
         document.querySelector(`[data-section="${id}"]`)?.classList.add('active');
         if (id === 'consulta') this._iniciarScannerConsulta();
+        if (id === 'devueltos') this.loadDevueltosAux();
     },
 
     // ═══ MODO CONSULTA ═══
@@ -683,6 +697,82 @@ const AuxiliarView = {
                 `<i class="fas fa-check-circle" style="color:var(--success)"></i> Detectado: <code>${code}</code>`;
             this.verDetalleConsulta(code);
         });
+    },
+
+    // ═══ DEVUELTOS POR JEFE ═══
+    async syncDevueltosFromSupabase(auxiliarId) {
+        try {
+            if (!navigator.onLine || !window.supabaseClient) return;
+            const { data, error } = await window.supabaseClient
+                .from('tareas').select('*')
+                .eq('auxiliar_id', auxiliarId)
+                .eq('estado', 'devuelto_jefe');
+            if (error || !data) return;
+            for (const remota of data) {
+                await window.db.tareas.put(remota);
+            }
+        } catch (e) {}
+    },
+
+    async loadDevueltosAux() {
+        const session = JSON.parse(localStorage.getItem('zengo_session') || '{}');
+        await this.syncDevueltosFromSupabase(session.id);
+        const tareas = await window.db.tareas.toArray();
+        const devueltas = tareas.filter(t => t.auxiliar_id === session.id && t.estado === 'devuelto_jefe');
+        const badge = document.getElementById('devueltos-aux-count');
+        if (badge) { badge.textContent = devueltas.length; badge.style.display = devueltas.length ? '' : 'none'; }
+        const el = document.getElementById('devueltos-aux-list');
+        if (!el) return;
+        if (!devueltas.length) {
+            el.innerHTML = '<div class="empty-state"><i class="fas fa-check-circle"></i><p>Sin cíclicos devueltos</p></div>';
+            return;
+        }
+        el.innerHTML = devueltas.map(t => `
+            <div class="ciclico-row" style="flex-direction:column;align-items:flex-start;gap:10px;padding:16px;">
+                <div class="ciclico-info">
+                    <strong>${t.categoria}</strong>
+                    <small>Devuelto por: ${t.devuelto_por_jefe || 'Jefe'} · ${t.fecha_devuelto_jefe ? new Date(t.fecha_devuelto_jefe).toLocaleString('es-CR') : '—'}</small>
+                    ${t.motivo_jefe ? `<small style="color:#f59e0b"><i class="fas fa-comment-alt"></i> ${t.motivo_jefe}</small>` : ''}
+                </div>
+                <button class="btn-primary" onclick="AuxiliarView.corregirCiclico('${t.id}')">
+                    <i class="fas fa-edit"></i> Corregir
+                </button>
+            </div>`).join('');
+    },
+
+    async corregirCiclico(tareaId) {
+        const tarea = await window.db.tareas.get(tareaId);
+        if (!tarea) { window.ZENGO?.toast('Tarea no encontrada', 'error'); return; }
+        this.tareaActual = tarea;
+        this._modoCorreccion = true;
+        document.getElementById('tarea-info').textContent = `Categoría: ${tarea.categoria} (Corrigiendo)`;
+        document.getElementById('sin-tarea').style.display = 'none';
+        document.getElementById('con-tarea').style.display = 'block';
+        this.showSection('ciclico');
+        this.renderProductos();
+        this.actualizarProgreso();
+        // En modo corrección siempre mostrar el botón de reenviar
+        const fs = document.getElementById('finalizar-section');
+        fs.style.display = 'block';
+        fs.innerHTML = `<button class="btn-finalizar" onclick="AuxiliarView.reenviarAlJefe()">
+            <i class="fas fa-paper-plane"></i> Reenviar al Jefe
+        </button>`;
+    },
+
+    async reenviarAlJefe() {
+        if (!this.tareaActual) return;
+        if (!await window.ZENGO?.confirm('¿Reenviar cíclico corregido al Jefe?', 'Confirmar')) return;
+        this.tareaActual.estado = 'finalizado_auxiliar';
+        this.tareaActual.fecha_finalizacion = new Date().toISOString();
+        await window.db.tareas.put(this.tareaActual);
+        const synced = await this.syncTareaToSupabase();
+        this._modoCorreccion = false;
+        window.ZENGO?.toast(synced ? 'Cíclico reenviado al Jefe ✓' : 'Enviado (pendiente sincronizar)', synced ? 'success' : 'warning');
+        this.tareaActual = null;
+        document.getElementById('con-tarea').style.display = 'none';
+        document.getElementById('sin-tarea').style.display = 'block';
+        document.getElementById('tarea-info').textContent = 'Cíclico reenviado al Jefe';
+        this.showSection('devueltos');
     },
 
     closeModal() {
