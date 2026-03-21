@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-// ZENGO - AuxiliarView v1.5
+// ZENGO - AuxiliarView v1.7.0
 // Solo lógica + HTML — CSS en archivos separados
 // Hallazgos almacenados en tarea.productos[] con es_hallazgo=true
 // ═══════════════════════════════════════════════════════════════
@@ -203,11 +203,38 @@ const AuxiliarView = {
                     productos: this.tareaActual.productos,
                     productos_contados: this.tareaActual.productos_contados,
                     estado: this.tareaActual.estado,
+                    cronometro_inicio: this.tareaActual.cronometro_inicio || null,
                     fecha_finalizacion: this.tareaActual.fecha_finalizacion || null
                 })
                 .eq('id', this.tareaActual.id);
             return !error;
         } catch (e) { return false; }
+    },
+
+    async registrarLogConteo({ accion, productoAntes = null, productoDespues = null, productoIndex = null }) {
+        try {
+            const session = JSON.parse(localStorage.getItem('zengo_session') || '{}');
+
+            await window.LogController?.registrar({
+                tabla: 'conteos_realizados',
+                accion,
+                registro_id: `${this.tareaActual?.id || 'sin_tarea'}_${productoIndex ?? 'sin_idx'}`,
+                usuario_id: session.id || null,
+                usuario_nombre: session.name || 'Auxiliar',
+                datos_anteriores: productoAntes ? {
+                    upc: productoAntes.upc,
+                    total: productoAntes.total || 0,
+                    conteos: productoAntes.conteos || []
+                } : null,
+                datos_nuevos: productoDespues ? {
+                    upc: productoDespues.upc,
+                    total: productoDespues.total || 0,
+                    conteos: productoDespues.conteos || []
+                } : null
+            });
+        } catch (e) {
+            console.warn(`Error log ${accion}:`, e);
+        }
     },
 
     // ═══ CARGAR TAREA ═══
@@ -361,31 +388,116 @@ const AuxiliarView = {
 
         await window.db.tareas.put(this.tareaActual);
         await this.syncTareaToSupabase();
+
+        try {
+            const session = JSON.parse(localStorage.getItem('zengo_session') || '{}');
+
+            await window.LogController?.registrar({
+                tabla: 'conteos_realizados',
+                accion: 'CONTEO_REGISTRADO',
+                registro_id: `${this.tareaActual.id}_${this.productoSeleccionado}`,
+                usuario_id: session.id || null,
+                usuario_nombre: session.name || 'Auxiliar',
+                datos_nuevos: {
+                    upc: p.upc,
+                    total: p.total || 0,
+                    conteos: p.conteos || []
+                }
+            });
+        } catch (e) {
+            console.warn('Error log conteo:', e);
+        }
+
         this.closeModal(); this.renderProductos(); this.actualizarProgreso();
         window.ZENGO?.toast('Conteo guardado ✓', 'success');
     },
 
     async editarConteo(pi, ci) {
         const p = this.tareaActual.productos[pi];
+        const antes = JSON.parse(JSON.stringify(p));
+
         const nv = prompt(`Editar cantidad (${p.conteos[ci].ubicacion}):`, p.conteos[ci].cantidad);
         if (nv === null) return;
+
         p.conteos[ci].cantidad = parseInt(nv) || 0;
         p.total = p.conteos.reduce((s, c) => s + c.cantidad, 0);
         p.diferencia = p.total - p.existencia;
-        await window.db.tareas.put(this.tareaActual); await this.syncTareaToSupabase();
-        this.renderProductos(); this.actualizarProgreso();
+
+        await window.db.tareas.put(this.tareaActual);
+        await this.syncTareaToSupabase();
+
+        try {
+            await window.LogController?.registrar({
+                tabla: 'conteos_realizados',
+                accion: 'CONTEO_EDITADO',
+                registro_id: `${this.tareaActual.id}_${pi}_${ci}`,
+                usuario_id: sessionStorage.getItem('zengo_session')
+                    ? JSON.parse(sessionStorage.getItem('zengo_session')).id
+                    : (JSON.parse(localStorage.getItem('zengo_session') || '{}').id || null),
+                usuario_nombre: JSON.parse(localStorage.getItem('zengo_session') || '{}').name || 'Auxiliar',
+                datos_anteriores: {
+                    upc: antes.upc,
+                    total: antes.total || 0,
+                    conteos: antes.conteos || []
+                },
+                datos_nuevos: {
+                    upc: p.upc,
+                    total: p.total || 0,
+                    conteos: p.conteos || []
+                }
+            });
+        } catch (e) {
+            console.warn('Error log editar conteo:', e);
+        }
+
+        this.renderProductos();
+        this.actualizarProgreso();
         window.ZENGO?.toast('Editado ✓', 'success');
     },
 
     async eliminarConteo(pi, ci) {
-        if (!await window.ZENGO?.confirm('¿Eliminar conteo?', 'Confirmar')) return;
+        const confirmado = await window.ZENGO?.confirm('¿Eliminar conteo?', 'Confirmar');
+        if (!confirmado) return;
+
+        const session = JSON.parse(localStorage.getItem('zengo_session') || '{}');
         const p = this.tareaActual.productos[pi];
+        const antes = JSON.parse(JSON.stringify(p));
+
         p.conteos.splice(ci, 1);
         p.total = p.conteos.reduce((s, c) => s + c.cantidad, 0);
         p.diferencia = p.total - p.existencia;
-        this.tareaActual.productos_contados = this.tareaActual.productos.filter(x => x.conteos && x.conteos.length > 0).length;
-        await window.db.tareas.put(this.tareaActual); await this.syncTareaToSupabase();
-        this.renderProductos(); this.actualizarProgreso();
+
+        this.tareaActual.productos_contados = this.tareaActual.productos.filter(
+            x => x.conteos && x.conteos.length > 0
+        ).length;
+
+        await window.db.tareas.put(this.tareaActual);
+        await this.syncTareaToSupabase();
+
+        try {
+            await window.LogController?.registrar({
+                tabla: 'conteos_realizados',
+                accion: 'CONTEO_ELIMINADO',
+                registro_id: `${this.tareaActual.id}_${pi}_${ci}`,
+                usuario_id: session.id || null,
+                usuario_nombre: session.name || 'Auxiliar',
+                datos_anteriores: {
+                    upc: antes.upc,
+                    total: antes.total || 0,
+                    conteos: antes.conteos || []
+                },
+                datos_nuevos: {
+                    upc: p.upc,
+                    total: p.total || 0,
+                    conteos: p.conteos || []
+                }
+            });
+        } catch (e) {
+            console.warn('Error log eliminar conteo:', e);
+        }
+
+        this.renderProductos();
+        this.actualizarProgreso();
         window.ZENGO?.toast('Eliminado', 'success');
     },
 
@@ -401,19 +513,60 @@ const AuxiliarView = {
         const upc = document.getElementById('hallazgo-upc').value.trim();
         const desc = document.getElementById('hallazgo-desc').value.trim();
         const sku = document.getElementById('hallazgo-sku').value.trim();
-        if (!upc) { window.ZENGO?.toast('Ingresa el UPC', 'error'); return; }
+
+        if (!upc) {
+            window.ZENGO?.toast('Ingresa el UPC', 'error');
+            return;
+        }
 
         const session = JSON.parse(localStorage.getItem('zengo_session') || '{}');
+
         this.tareaActual.productos.push({
-            upc, sku: sku || '', descripcion: desc || 'Hallazgo', existencia: 0, precio: 0,
-            conteos: [], total: 0, diferencia: 0,
-            es_hallazgo: true, hallazgo_estado: 'pendiente',
-            hallazgo_reportado_por: session.name, hallazgo_reportado_color: 'celeste',
-            hallazgo_fecha: new Date().toISOString(), modificaciones: []
+            upc,
+            sku: sku || '',
+            descripcion: desc || 'Hallazgo',
+            existencia: 0,
+            precio: 0,
+            conteos: [],
+            total: 0,
+            diferencia: 0,
+            es_hallazgo: true,
+            hallazgo_estado: 'pendiente',
+            hallazgo_reportado_por: session.name,
+            hallazgo_reportado_color: 'celeste',
+            hallazgo_fecha: new Date().toISOString(),
+            modificaciones: []
         });
 
-        await window.db.tareas.put(this.tareaActual); await this.syncTareaToSupabase();
-        this.closeModal(); this.renderProductos(); this.actualizarProgreso();
+        const nuevo = this.tareaActual.productos[this.tareaActual.productos.length - 1];
+        const idx = this.tareaActual.productos.length - 1;
+
+        await window.db.tareas.put(this.tareaActual);
+        await this.syncTareaToSupabase();
+
+        try {
+            await window.LogController?.registrar({
+                tabla: 'hallazgos',
+                accion: 'HALLAZGO_REPORTADO',
+                registro_id: `${this.tareaActual.id}_${idx}`,
+                usuario_id: session.id || null,
+                usuario_nombre: session.name || 'Auxiliar',
+                datos_nuevos: {
+                    upc: nuevo.upc,
+                    sku: nuevo.sku || '',
+                    descripcion: nuevo.descripcion || '',
+                    estado: nuevo.hallazgo_estado || 'pendiente',
+                    total: nuevo.total || 0,
+                    conteos: nuevo.conteos || []
+                }
+            });
+        } catch (e) {
+            console.warn('Error log hallazgo:', e);
+        }
+
+        this.closeModal();
+        this.renderProductos();
+        this.actualizarProgreso();
         window.ZENGO?.toast('Hallazgo reportado — esperando aprobación del Jefe', 'success');
     },
 
@@ -431,6 +584,7 @@ const AuxiliarView = {
             this.cronometroInicio = Date.now();
             this.tareaActual.cronometro_inicio = new Date().toISOString();
             window.db.tareas.put(this.tareaActual);
+            this.syncTareaToSupabase(); // subir cronometro_inicio a Supabase inmediatamente
         }
         this.cronometroInterval = setInterval(() => this.actualizarCronometro(), 1000);
         this.actualizarCronometro();
@@ -544,12 +698,12 @@ const AuxiliarView = {
             // Guardar en Supabase
             try {
                 if (navigator.onLine && window.supabaseClient) {
-                    await window.supabaseClient.from('profiles').update({
+                    await window.supabaseClient.from('usuarios').update({
                         precision_historica: nuevaHist,
                         ciclicos_completados: ciclos
                     }).eq('id', session.id);
                 } else {
-                    await window.SyncManager?.addToQueue('profiles', 'update', {
+                    await window.SyncManager?.addToQueue('usuarios', 'update', {
                         id: session.id,
                         changes: { precision_historica: nuevaHist, ciclicos_completados: ciclos }
                     });
@@ -681,7 +835,7 @@ const AuxiliarView = {
             `<div class="consulta-lista-item" onclick="AuxiliarView.verDetalleConsulta('${p.upc}')">
                 <span class="consulta-lista-upc">${p.upc || '—'}</span>
                 <span class="consulta-lista-desc">${p.descripcion || '—'}</span>
-                <span class="consulta-lista-meta">₡${(p.precio||0).toLocaleString()} · Existencia: ${p.existencia||0}</span>
+                <span class="consulta-lista-meta">₡${(p.precio || 0).toLocaleString()} · Existencia: ${p.existencia || 0}</span>
             </div>`).join('')}</div>`;
     },
 
@@ -711,7 +865,7 @@ const AuxiliarView = {
             for (const remota of data) {
                 await window.db.tareas.put(remota);
             }
-        } catch (e) {}
+        } catch (e) { }
     },
 
     async loadDevueltosAux() {
@@ -807,4 +961,4 @@ const AuxiliarView = {
 };
 
 window.AuxiliarView = AuxiliarView;
-console.log('✓ AuxiliarView v1.5 cargado');
+console.log('✓ AuxiliarView v1.7.0 cargado');

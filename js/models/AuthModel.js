@@ -33,7 +33,7 @@ const AuthModel = {
         try {
             if (navigator.onLine && window.supabaseClient) {
                 const { data, error } = await window.supabaseClient
-                    .from('profiles')
+                    .from('usuarios')
                     .select('*')
                     .eq('activo', true)
                     .order('id');
@@ -73,7 +73,7 @@ const AuthModel = {
             // 1. Intentar contra Supabase
             if (navigator.onLine && window.supabaseClient) {
                 const { data, error } = await window.supabaseClient
-                    .from('profiles')
+                    .from('usuarios')
                     .select('*')
                     .eq('email', email)
                     .eq('password', password)
@@ -81,11 +81,33 @@ const AuthModel = {
                     .single();
 
                 if (!error && data) {
-                    // Actualizar cache local con este usuario
                     await this._saveToLocal(data);
+
+                    // Añade para el log de login
+                    await window.LogController?.registrar({
+                        tabla: 'usuarios',
+                        accion: 'LOGIN',
+                        registro_id: data.id,
+                        usuario_id: data.id,
+                        usuario_nombre: `${data.nombre || ''} ${data.apellido || ''}`.trim() || data.email,
+                        datos_nuevos: {
+                            email: data.email,
+                            role_id: data.role_id,
+                            activo: data.activo
+                        }
+                    });
+
                     return this._formatUser(data);
                 }
             }
+
+            // Registra log d elogin fallido
+            await window.LogController?.registrar({
+                tabla: 'usuarios',
+                accion: 'FAILED_LOGIN',
+                usuario_nombre: email,
+                datos_nuevos: { email }
+            });
 
             // 2. Fallback: buscar en Dexie (modo offline)
             return await this._validateOffline(email, password);
@@ -151,7 +173,7 @@ const AuthModel = {
             // Intentar desde Supabase
             if (navigator.onLine && window.supabaseClient) {
                 const { data, error } = await window.supabaseClient
-                    .from('profiles')
+                    .from('usuarios')
                     .select('*')
                     .order('id');
 
@@ -209,7 +231,7 @@ const AuthModel = {
         try {
             if (navigator.onLine && window.supabaseClient) {
                 const { data, error } = await window.supabaseClient
-                    .from('profiles')
+                    .from('usuarios')
                     .select('*')
                     .eq('id', id)
                     .single();
@@ -246,7 +268,7 @@ const AuthModel = {
         try {
             if (navigator.onLine && window.supabaseClient) {
                 const { data, error } = await window.supabaseClient
-                    .from('profiles')
+                    .from('usuarios')
                     .insert(newUser)
                     .select()
                     .single();
@@ -255,6 +277,24 @@ const AuthModel = {
 
                 // Guardar en Dexie también
                 await this._saveToLocal(data);
+
+                // Guardar log de creación de usuario
+                const currentUser = window.AuthController?.getUser?.();
+
+                await window.LogController?.registrar({
+                    tabla: 'usuarios',
+                    accion: 'CREATE_USER',
+                    registro_id: data.id,
+                    usuario_id: currentUser?.id || null,
+                    usuario_nombre: currentUser?.name || currentUser?.email || 'Sistema',
+                    datos_nuevos: {
+                        email: data.email,
+                        nombre: data.nombre,
+                        apellido: data.apellido,
+                        role_id: data.role_id,
+                        activo: data.activo
+                    }
+                });
                 return { ...data, role: this.mapRole(data.role_id) };
             }
 
@@ -263,7 +303,7 @@ const AuthModel = {
                 ...newUser,
                 fecha_creacion: new Date().toISOString()
             });
-            await window.SyncManager.addToQueue('profiles', 'insert', newUser);
+            await window.SyncManager.addToQueue('usuarios', 'insert', newUser);
             return { ...newUser, id: localId, role: this.mapRole(newUser.role_id) };
 
         } catch (err) {
@@ -285,9 +325,21 @@ const AuthModel = {
         if (userData.activo !== undefined) changes.activo = userData.activo;
 
         try {
+            let oldUser = null;
+
             if (navigator.onLine && window.supabaseClient) {
+
+                // Conserva información para log de actualización de usuario
+                const { data: previo } = await window.supabaseClient
+                    .from('usuarios')
+                    .select('*')
+                    .eq('id', userId)
+                    .single();
+
+                oldUser = previo || null;
+
                 const { data, error } = await window.supabaseClient
-                    .from('profiles')
+                    .from('usuarios')
                     .update(changes)
                     .eq('id', userId)
                     .select()
@@ -297,12 +349,32 @@ const AuthModel = {
 
                 // Actualizar Dexie
                 await this._saveToLocal(data);
+
+                //Log de actualización de usuario
+                const currentUser = window.AuthController?.getUser?.();
+
+                await window.LogController?.registrar({
+                    tabla: 'usuarios',
+                    accion: 'UPDATE_USER',
+                    registro_id: userId,
+                    usuario_id: currentUser?.id || null,
+                    usuario_nombre: currentUser?.name || currentUser?.email || 'Sistema',
+                    datos_anteriores: oldUser ? {
+                        email: oldUser.email,
+                        nombre: oldUser.nombre,
+                        apellido: oldUser.apellido,
+                        role_id: oldUser.role_id,
+                        activo: oldUser.activo
+                    } : null,
+                    datos_nuevos: { ...changes }
+                });
+
                 return { ...data, role: this.mapRole(data.role_id) };
             }
 
             // Modo offline
             await window.db.usuarios.update(userId, changes);
-            await window.SyncManager.addToQueue('profiles', 'update', { id: userId, changes });
+            await window.SyncManager.addToQueue('usuarios', 'update', { id: userId, changes });
             const updated = await window.db.usuarios.get(userId);
             return updated ? { ...updated, role: this.mapRole(updated.role_id) } : null;
 
@@ -317,9 +389,20 @@ const AuthModel = {
     // ═══════════════════════════════════════════════════════════
     async deleteUser(userId) {
         try {
+            let oldUser = null;
+
             if (navigator.onLine && window.supabaseClient) {
+                //Información para log de eliminar usaurio
+                const { data: previo } = await window.supabaseClient
+                    .from('usuarios')
+                    .select('*')
+                    .eq('id', userId)
+                    .single();
+
+                oldUser = previo || null;
+
                 const { error } = await window.supabaseClient
-                    .from('profiles')
+                    .from('usuarios')
                     .update({ activo: false })
                     .eq('id', userId);
 
@@ -327,12 +410,30 @@ const AuthModel = {
 
                 // Actualizar en Dexie
                 await window.db.usuarios.update(userId, { activo: false });
+
+                // Log de eliminación de usuario
+                const currentUser = window.AuthController?.getUser?.();
+                await window.LogController?.registrar({
+                    tabla: 'usuarios',
+                    accion: 'DELETE_USER',
+                    registro_id: userId,
+                    usuario_id: currentUser?.id || null,
+                    usuario_nombre: currentUser?.name || currentUser?.email || 'Sistema',
+                    datos_anteriores: oldUser ? {
+                        email: oldUser.email,
+                        nombre: oldUser.nombre,
+                        apellido: oldUser.apellido,
+                        role_id: oldUser.role_id,
+                        activo: oldUser.activo
+                    } : null,
+                    datos_nuevos: { activo: false }
+                });
                 return true;
             }
 
             // Modo offline
             await window.db.usuarios.update(userId, { activo: false });
-            await window.SyncManager.addToQueue('profiles', 'update', {
+            await window.SyncManager.addToQueue('usuarios', 'update', {
                 id: userId,
                 changes: { activo: false }
             });

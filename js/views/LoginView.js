@@ -62,7 +62,7 @@ const LoginView = {
                             <button type="button" onclick="LoginView.fillDemo('jefe@zengo.com', '123')">
                                 <i class="fas fa-user-tie"></i> Jefe
                             </button>
-                            <button type="button" onclick="LoginView.fillDemo('auxiliar@zengo.com', '123')">
+                            <button type="button" onclick="LoginView.fillDemo('aux@zengo.com', '123')">
                                 <i class="fas fa-user"></i> Auxiliar
                             </button>
                         </div>

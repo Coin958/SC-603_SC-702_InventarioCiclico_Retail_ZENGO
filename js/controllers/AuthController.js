@@ -7,7 +7,7 @@ const AuthController = {
 
     async login(email, password) {
         this.showLoading(true);
-        
+
         const userData = await window.AuthModel.validateCredentials(email, password);
 
         this.showLoading(false);
@@ -16,6 +16,7 @@ const AuthController = {
             this.currentUser = userData;
             localStorage.setItem('zengo_session', JSON.stringify(userData));
             this.initSession(userData);
+            // El log de LOGIN ya lo registra AuthModel.validateCredentials()
         } else {
             this.showError("Usuario o contraseña incorrectos");
         }
@@ -95,6 +96,16 @@ const AuthController = {
         } catch (e) {
             console.warn('Sync pre-logout falló:', e);
         }
+
+        const currentUser = this.currentUser;
+        await window.LogController?.registrar({
+            tabla: 'usuarios',
+            accion: 'LOGOUT',
+            registro_id: currentUser?.id || null,
+            usuario_id: currentUser?.id || null,
+            usuario_nombre: currentUser?.name || currentUser?.email || 'Sistema'
+        });
+
         window.AuthModel.logout();
         localStorage.removeItem('zengo_session');
         this.currentUser = null;
@@ -155,7 +166,7 @@ const AuthController = {
             if (form) form.insertBefore(errorEl, form.firstChild);
         }
         errorEl.textContent = message;
-        
+
         setTimeout(() => errorEl?.remove(), 4000);
     },
 

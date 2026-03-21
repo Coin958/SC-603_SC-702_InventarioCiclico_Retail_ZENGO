@@ -54,123 +54,142 @@ const AdminController = {
         const sync = syncResult || { supabaseOk: false, dexieOk: false, supabaseCount: 0, dexieCount: 0 };
         const existenciaTotal = items.reduce((acc, p) => acc + (p.existencia || 0), 0);
 
+        // Categorías ordenadas por volumen descendente
+        const catsSorted = [...categories].sort((a, b) => b[1] - a[1]);
+
+        const catCards = catsSorted.map(([nombre, count]) => {
+            const pct = ((count / stats.total) * 100).toFixed(1);
+            return `
+                <div style="background:#1c2023;padding:18px;border-radius:12px;">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
+                        <div>
+                            <p style="font-weight:700;color:#e2e6eb;margin:0 0 3px;font-size:13px;">${nombre}</p>
+                            <p style="color:#a8abb0;font-size:11px;margin:0;">${count} productos</p>
+                        </div>
+                        <span style="background:rgba(200,16,46,.12);color:#C8102E;font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap;">${pct}%</span>
+                    </div>
+                    <div style="width:100%;background:#111416;height:3px;border-radius:4px;overflow:hidden;">
+                        <div style="background:#C8102E;height:100%;width:${pct}%;border-radius:4px;"></div>
+                    </div>
+                </div>`;
+        }).join('');
+
+        // Colores dinámicos según estado
+        const dc = sync.dexieOk    ? '#C8102E' : '#fa746f';
+        const sc = sync.supabaseOk ? '#C8102E' : '#f59e0b';
+        const dbg = sync.dexieOk    ? 'rgba(200,16,46,.07)' : 'rgba(250,116,111,.07)';
+        const sbg = sync.supabaseOk ? 'rgba(200,16,46,.07)' : 'rgba(245,158,11,.07)';
+        const dbd = sync.dexieOk    ? 'rgba(200,16,46,.15)' : 'rgba(250,116,111,.15)';
+        const sbd = sync.supabaseOk ? 'rgba(200,16,46,.15)' : 'rgba(245,158,11,.15)';
+
+        const dexieTxt = sync.dexieOk
+            ? `${sync.dexieCount} productos guardados`
+            : (sync.dexieError || 'Error al guardar');
+        const supTxt = sync.supabaseOk
+            ? `${sync.supabaseCount} productos sincronizados`
+            : 'Pendiente de sincronizar';
+
         const modal = document.createElement('div');
-        modal.className = 'modal-overlay';
+        modal.className = 'zengo-import-summary';
+        modal.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;align-items:stretch;justify-content:center;background:rgba(12,14,16,.97);overflow:hidden;font-family:Inter,sans-serif;';
+
         modal.innerHTML = `
-            <div class="modal-content glass" style="max-width: 600px;">
-                <div class="modal-header">
-                    <h3><i class="fas fa-check-circle text-success"></i> Importación Exitosa</h3>
-                    <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-                <div class="modal-body">
-                    <div class="import-stats">
-                        <div class="stat-row highlight">
-                            <span><i class="fas fa-boxes"></i> Total productos</span>
-                            <strong>${stats.total.toLocaleString()}</strong>
-                        </div>
-                        <div class="stat-row">
-                            <span><i class="fas fa-layer-group"></i> Categorías detectadas</span>
-                            <strong>${stats.categories}</strong>
-                        </div>
-                        <div class="stat-row">
-                            <span><i class="fas fa-cubes"></i> Existencia total</span>
-                            <strong>${existenciaTotal.toLocaleString()} unidades</strong>
-                        </div>
-                        <div class="stat-row">
-                            <span><i class="fas fa-coins"></i> Valor total inventario</span>
-                            <strong>₡${stats.totalValue.toLocaleString()}</strong>
-                        </div>
-                    </div>
-                    
-                    <div class="categories-preview">
-                        <h4><i class="fas fa-th-large"></i> Productos por Categoría:</h4>
-                        <div class="cat-grid">
-                            ${categories.map(([nombre, count], index) => {
-                                const colores = ['#C8102E', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16', '#F97316'];
-                                const color = colores[index % colores.length];
-                                const porcentaje = ((count / stats.total) * 100).toFixed(1);
-                                return `
-                                    <div class="cat-card" style="border-left: 4px solid ${color}">
-                                        <div class="cat-header">
-                                            <span class="cat-name">${nombre}</span>
-                                            <span class="cat-count" style="background: ${color}">${count}</span>
-                                        </div>
-                                        <div class="cat-bar">
-                                            <div class="cat-bar-fill" style="width: ${porcentaje}%; background: ${color}"></div>
-                                        </div>
-                                        <span class="cat-percent">${porcentaje}%</span>
-                                    </div>
-                                `;
-                            }).join('')}
-                        </div>
-                    </div>
+            <main style="display:flex;flex-direction:column;width:100%;max-width:1100px;margin:0 auto;padding:44px 48px 0;overflow:hidden;">
 
-                    <div class="save-status">
-                        <div class="save-item ${sync.dexieOk ? 'success' : 'error'}">
-                            <i class="fas fa-database"></i>
-                            <span>Dexie (local): ${sync.dexieOk ? sync.dexieCount + ' productos guardados' : 'Error al guardar'}</span>
-                            <i class="fas fa-${sync.dexieOk ? 'check' : 'times'}"></i>
+                <!-- Header -->
+                <header style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:36px;gap:24px;">
+                    <div>
+                        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+                            <i class="fas fa-cloud-upload-alt" style="color:#C8102E;font-size:26px;"></i>
+                            <h1 style="font-family:'Manrope','Nunito',sans-serif;font-size:clamp(22px,3vw,34px);font-weight:800;color:#e2e6eb;margin:0;letter-spacing:-.5px;">Importación Completada</h1>
                         </div>
-                        <div class="save-item ${sync.supabaseOk ? 'success' : 'pending'}">
-                            <i class="fas fa-cloud"></i>
-                            <span>Supabase: ${sync.supabaseOk ? sync.supabaseCount + ' productos sincronizados' : 'Pendiente de sincronizar'}</span>
-                            <i class="fas fa-${sync.supabaseOk ? 'check' : 'clock'}"></i>
+                        <p style="color:#a8abb0;font-size:14px;margin:0;">Los datos han sido procesados y catalogados en el sistema ZENGO.</p>
+                    </div>
+                    <div style="display:flex;gap:10px;flex-shrink:0;">
+                        <button onclick="this.closest('.zengo-import-summary').remove()"
+                            style="padding:9px 20px;border-radius:10px;background:#22262a;color:#e2e6eb;font-weight:600;border:1px solid rgba(68,72,77,.5);cursor:pointer;font-size:13px;">
+                            Cerrar
+                        </button>
+                        <button onclick="AdminController.verDashboard();this.closest('.zengo-import-summary').remove()"
+                            style="padding:9px 20px;border-radius:10px;background:linear-gradient(135deg,#C8102E,#8B0A20);color:#fff;font-weight:700;border:none;cursor:pointer;font-size:13px;box-shadow:0 4px 20px rgba(200,16,46,.15);">
+                            Ver Dashboard
+                        </button>
+                    </div>
+                </header>
+
+                <!-- KPI Bento Grid -->
+                <section style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:28px;">
+                    <div style="background:#171a1d;padding:22px 24px;border-radius:14px;">
+                        <span style="color:#a8abb0;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;">Total productos</span>
+                        <div style="margin-top:12px;">
+                            <span style="font-family:'Manrope','Nunito',sans-serif;font-size:clamp(28px,3.5vw,44px);font-weight:900;color:#C8102E;">${stats.total.toLocaleString()}</span>
                         </div>
                     </div>
-                </div>
-                <div class="modal-footer">
-                    <button class="btn-secondary" onclick="this.closest('.modal-overlay').remove()">
-                        Cerrar
-                    </button>
-                    <button class="btn-primary" onclick="AdminController.verDashboard(); this.closest('.modal-overlay').remove()">
-                        <i class="fas fa-chart-pie"></i> Ver Dashboard
-                    </button>
-                </div>
-            </div>
-        `;
+                    <div style="background:#171a1d;padding:22px 24px;border-radius:14px;">
+                        <span style="color:#a8abb0;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;">Categorías</span>
+                        <div style="margin-top:12px;">
+                            <span style="font-family:'Manrope','Nunito',sans-serif;font-size:clamp(28px,3.5vw,44px);font-weight:900;color:#e2e6eb;">${stats.categories}</span>
+                        </div>
+                    </div>
+                    <div style="background:#171a1d;padding:22px 24px;border-radius:14px;">
+                        <span style="color:#a8abb0;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;">Existencia total</span>
+                        <div style="margin-top:12px;display:flex;align-items:baseline;gap:6px;">
+                            <span style="font-family:'Manrope','Nunito',sans-serif;font-size:clamp(28px,3.5vw,44px);font-weight:900;color:#e2e6eb;">${existenciaTotal.toLocaleString()}</span>
+                            <span style="color:#a8abb0;font-size:12px;">uds</span>
+                        </div>
+                    </div>
+                    <div style="background:#171a1d;padding:22px 24px;border-radius:14px;">
+                        <span style="color:#a8abb0;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;">Valor inventario</span>
+                        <div style="margin-top:12px;">
+                            <span style="font-family:'Manrope','Nunito',sans-serif;font-size:clamp(16px,2vw,24px);font-weight:900;color:#C8102E;display:block;line-height:1.2;">₡${stats.totalValue.toLocaleString()}</span>
+                            <span style="color:#a8abb0;font-size:10px;margin-top:3px;display:block;">Valor estimado</span>
+                        </div>
+                    </div>
+                </section>
 
-        this.injectModalStyles();
-        modal.style.cssText = `
-            position: fixed; inset: 0; z-index: 10000;
-            display: flex; align-items: center; justify-content: center;
-            background: rgba(0,0,0,0.8);
+                <!-- Category Breakdown -->
+                <section style="flex:1;min-height:0;display:flex;flex-direction:column;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+                        <h2 style="font-family:'Manrope','Nunito',sans-serif;font-size:15px;font-weight:700;color:#e2e6eb;margin:0;display:flex;align-items:center;gap:8px;">
+                            <i class="fas fa-chart-bar" style="color:#C8102E;"></i>
+                            Desglose por Categoría
+                        </h2>
+                        <span style="color:#a8abb0;font-size:10px;">Ordenado por volumen</span>
+                    </div>
+                    <div style="flex:1;overflow-y:auto;padding-right:6px;margin-right:-6px;scrollbar-width:thin;scrollbar-color:#22262a transparent;">
+                        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;padding-bottom:20px;">
+                            ${catCards}
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Footer Status -->
+                <footer style="padding:16px 0;border-top:1px solid rgba(68,72,77,.2);display:flex;align-items:center;gap:10px;flex-shrink:0;">
+                    <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;background:${dbg};border-radius:8px;border:1px solid ${dbd};">
+                        <span style="width:7px;height:7px;border-radius:50%;background:${dc};box-shadow:0 0 8px ${dc};flex-shrink:0;"></span>
+                        <div>
+                            <span style="font-size:11px;color:#e2e6eb;font-weight:500;display:block;">Dexie (local)</span>
+                            <span style="font-size:10px;color:${dc};display:block;">${dexieTxt}</span>
+                        </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;background:${sbg};border-radius:8px;border:1px solid ${sbd};">
+                        <span style="width:7px;height:7px;border-radius:50%;background:${sc};box-shadow:0 0 8px ${sc};flex-shrink:0;"></span>
+                        <div>
+                            <span style="font-size:11px;color:#e2e6eb;font-weight:500;display:block;">Supabase</span>
+                            <span style="font-size:10px;color:${sc};display:block;">${supTxt}</span>
+                        </div>
+                    </div>
+                </footer>
+
+            </main>
+            <div style="position:fixed;top:0;right:0;width:500px;height:500px;background:radial-gradient(circle,rgba(200,16,46,.04) 0%,transparent 70%);pointer-events:none;"></div>
+            <div style="position:fixed;bottom:0;left:0;width:400px;height:400px;background:radial-gradient(circle,rgba(249,135,135,.04) 0%,transparent 70%);pointer-events:none;"></div>
         `;
 
         document.body.appendChild(modal);
     },
 
-    injectModalStyles() {
-        if (document.getElementById('admin-modal-styles')) return;
-        
-        const style = document.createElement('style');
-        style.id = 'admin-modal-styles';
-        style.innerHTML = `
-            .import-stats { display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; }
-            .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: rgba(255,255,255,0.05); border-radius: 10px; }
-            .stat-row.highlight { background: rgba(200, 16, 46, 0.15); border: 1px solid rgba(200, 16, 46, 0.3); }
-            .stat-row span { display: flex; align-items: center; gap: 10px; color: rgba(255,255,255,0.7); }
-            .stat-row strong { font-family: 'JetBrains Mono', monospace; font-size: 16px; }
-            .categories-preview { margin-bottom: 24px; }
-            .categories-preview h4 { margin-bottom: 16px; font-size: 14px; display: flex; align-items: center; gap: 8px; color: rgba(255,255,255,0.6); }
-            .cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
-            .cat-card { background: rgba(255,255,255,0.03); border-radius: 8px; padding: 12px; }
-            .cat-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-            .cat-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; max-width: 100px; }
-            .cat-count { font-size: 11px; padding: 2px 8px; border-radius: 10px; color: white; font-weight: 600; }
-            .cat-bar { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; margin-bottom: 6px; }
-            .cat-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s ease; }
-            .cat-percent { font-size: 11px; color: rgba(255,255,255,0.5); }
-            .save-status { display: flex; flex-direction: column; gap: 8px; }
-            .save-item { display: flex; align-items: center; gap: 12px; padding: 10px 15px; border-radius: 8px; font-size: 13px; }
-            .save-item.success { background: rgba(34, 197, 94, 0.1); color: #22c55e; }
-            .save-item.pending { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
-            .save-item.error { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
-            .save-item span { flex: 1; }
-        `;
-        document.head.appendChild(style);
-    },
+    injectModalStyles() { /* estilos ahora son inline en showImportSummary */ },
 
     verDashboard() {
         window.AdminView?.showSection?.('dashboard');
@@ -183,7 +202,7 @@ const AdminController = {
     // ═══════════════════════════════════════════════════════════
     async exportDiferencias() {
         try {
-            const conteos = await window.db.conteos.toArray();
+            const conteos = await window.db.conteos_realizados.toArray();
             const productos = await window.db.productos.toArray();
 
             const productosMap = new Map(productos.map(p => [p.upc, p]));
@@ -208,7 +227,7 @@ const AdminController = {
             const ws = XLSX.utils.json_to_sheet(diferencias);
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, 'Diferencias');
-            
+
             XLSX.writeFile(wb, `ZENGO_Diferencias_${new Date().toISOString().split('T')[0]}.xlsx`);
 
             window.ZENGO?.toast('Reporte exportado', 'success');
@@ -306,7 +325,62 @@ const AdminController = {
             console.error('Error exportando cíclico:', err);
             window.ZENGO?.toast('Error al exportar', 'error');
         }
-    }
+    },
+
+    async obtenerLogs() {
+        return await window.LogController.obtenerTodos({ limite: 200 });
+    },
+
+    async cerrarCicloDiario() {
+        try {
+            // 1. Limpiar Supabase primero
+            if (navigator.onLine && window.supabaseClient) {
+                const { error: errorConteos } = await window.supabaseClient
+                    .from('conteos_realizados')
+                    .delete()
+                    .not('id', 'is', null);
+
+                if (errorConteos) throw errorConteos;
+
+                const { error: errorHallazgos } = await window.supabaseClient
+                    .from('hallazgos')
+                    .delete()
+                    .not('id', 'is', null);
+
+                if (errorHallazgos) throw errorHallazgos;
+
+                const { error: errorTareas } = await window.supabaseClient
+                    .from('tareas')
+                    .delete()
+                    .neq('id', '');
+
+                if (errorTareas) throw errorTareas;
+
+                const { error: errorProductos } = await window.supabaseClient
+                    .from('productos')
+                    .delete()
+                    .neq('id', 0);
+
+                if (errorProductos) throw errorProductos;
+            }
+
+            // 2. Limpiar Dexie/local
+            if (window.db) {
+                if (window.db.conteos_realizados)    await window.db.conteos_realizados.clear();
+                if (window.db.hallazgos)             await window.db.hallazgos.clear();
+                if (window.db.tareas)                await window.db.tareas.clear();
+                if (window.db.productos)             await window.db.productos.clear();
+                if (window.db.cola_sync)             await window.db.cola_sync.clear();
+                if (window.db.ubicaciones_historico) await window.db.ubicaciones_historico.clear();
+            }
+
+            return { ok: true };
+        } catch (error) {
+            console.error('Error cerrando ciclo diario:', error);
+            return { ok: false, error: error.message || 'Error al cerrar ciclo diario' };
+        }
+    },
+
 };
 
 // Exponer globalmente

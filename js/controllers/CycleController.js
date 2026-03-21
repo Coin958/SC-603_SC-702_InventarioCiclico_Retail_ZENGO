@@ -10,10 +10,12 @@ const CycleController = {
     // ═══════════════════════════════════════════════════════════
     async registrarConteo(upc, cantidad, ubicacion, tareaId, auxiliarId) {
         try {
+            const id = crypto.randomUUID();
             const timestamp = new Date().toISOString();
 
-            // Guardar en Dexie
-            const conteoId = await window.db.conteos.add({
+            // Guardar en Dexie (UUID como clave)
+            await window.db.conteos_realizados.add({
+                id,
                 upc: upc,
                 cantidad: cantidad,
                 ubicacion: ubicacion,
@@ -27,17 +29,18 @@ const CycleController = {
                 await this.actualizarProgresoTarea(tareaId, upc, cantidad);
             }
 
-            // Agregar a cola de sync
+            // Agregar a cola de sync (mismo UUID → Supabase sabrá el id)
             await window.SyncManager.addToQueue('conteos_realizados', 'insert', {
+                id,
                 upc: upc,
-                cantidad_contada: cantidad,
+                cantidad: cantidad,
                 ubicacion: ubicacion,
                 tarea_id: tareaId,
                 auxiliar_id: auxiliarId,
                 timestamp: timestamp
             });
 
-            return { success: true, id: conteoId };
+            return { success: true, id };
 
         } catch (err) {
             console.error('Error registrando conteo:', err);
@@ -50,9 +53,11 @@ const CycleController = {
     // ═══════════════════════════════════════════════════════════
     async registrarHallazgo(datos) {
         try {
+            const id = crypto.randomUUID();
             const timestamp = new Date().toISOString();
 
-            const hallazgoId = await window.db.hallazgos.add({
+            await window.db.hallazgos.add({
+                id,
                 upc: datos.upc,
                 descripcion: datos.descripcion || '',
                 cantidad: datos.cantidad || 0,
@@ -64,8 +69,9 @@ const CycleController = {
                 timestamp: timestamp
             });
 
-            // Agregar a cola de sync
+            // Agregar a cola de sync (mismo UUID)
             await window.SyncManager.addToQueue('hallazgos', 'insert', {
+                id,
                 upc: datos.upc,
                 descripcion: datos.descripcion,
                 cantidad: datos.cantidad,
@@ -77,7 +83,25 @@ const CycleController = {
             });
 
             window.ZENGO?.toast('Hallazgo reportado', 'success');
-            return { success: true, id: hallazgoId };
+
+            // Log de hallazgo
+            await window.LogController?.registrar({
+                tabla: 'hallazgos',
+                accion: 'HALLAZGO_REPORTADO',
+                registro_id: id,
+                usuario_id: datos.auxiliarId || null,
+                usuario_nombre: datos.auxiliarNombre || 'Auxiliar',
+                datos_nuevos: {
+                    upc: datos.upc,
+                    descripcion: datos.descripcion || '',
+                    cantidad: datos.cantidad || 0,
+                    ubicacion: datos.ubicacion || '',
+                    tarea_id: datos.tareaId || null,
+                    estado: 'pendiente'
+                }
+            });
+
+            return { success: true, id };
 
         } catch (err) {
             console.error('Error registrando hallazgo:', err);
@@ -137,7 +161,7 @@ const CycleController = {
                 .toArray();
 
             // Buscar tarea en progreso o pendiente
-            const tareaActiva = tareas.find(t => 
+            const tareaActiva = tareas.find(t =>
                 t.estado === 'en_progreso' || t.estado === 'pendiente'
             );
 
@@ -213,11 +237,11 @@ const CycleController = {
     async getResumenConteos(tareaId = null) {
         try {
             let conteos;
-            
+
             if (tareaId) {
-                conteos = await window.db.conteos.where('tarea_id').equals(tareaId).toArray();
+                conteos = await window.db.conteos_realizados.where('tarea_id').equals(tareaId).toArray();
             } else {
-                conteos = await window.db.conteos.toArray();
+                conteos = await window.db.conteos_realizados.toArray();
             }
 
             const productos = await window.db.productos.toArray();

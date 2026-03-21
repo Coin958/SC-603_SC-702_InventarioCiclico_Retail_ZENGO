@@ -5,7 +5,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 const SUPABASE_URL = "https://rialsyihreilemweovta.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJpYWxzeWlocmVpbGVtd2VvdnRhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkyODQxOTUsImV4cCI6MjA4NDg2MDE5NX0.yxIuUyniS32JKSlHVi5TNl3qMObev9d8jzdoiamcGRM";
+const SUPABASE_ANON_KEY = "sb_publishable_WNyHOiV9pCY-G2OnWET8lQ_F2KIx8vJ";
 
 let supabaseClient = null;
 

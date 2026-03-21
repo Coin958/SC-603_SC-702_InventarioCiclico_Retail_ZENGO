@@ -32,6 +32,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // Iniciar sincronización en background
     window.SyncManager.init();
+
+    // Iniciar Realtime + monitor offline
+    window.RealtimeManager.init();
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -120,7 +123,7 @@ function setupConnectionMonitor() {
 // ═══════════════════════════════════════════════════════════════
 
 window.ZENGO = {
-    version: '1.0.0',
+    version: '1.7.0',
     
     // Mostrar notificación toast
     toast(message, type = 'info', duration = 3000) {
@@ -206,4 +209,4 @@ window.ZENGO = {
     }
 };
 
-console.log('✓ ZENGO v1.0.0 inicializado');
+console.log('✓ ZENGO v1.7.0 inicializado');

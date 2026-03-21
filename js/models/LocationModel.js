@@ -4,25 +4,26 @@
 // ═══════════════════════════════════════════════════════════════
 
 const LocationModel = {
-    
+
     // ═══════════════════════════════════════════════════════════
     // GUARDAR UBICACIÓN
     // ═══════════════════════════════════════════════════════════
     async saveLocation(upc, ubicacion, auxiliarId = null) {
         try {
-            await window.db.ubicaciones.add({
+            await window.db.ubicaciones_historico.add({
+                id: crypto.randomUUID(),
                 upc: upc,
                 ubicacion: ubicacion,
                 auxiliar_id: auxiliarId,
                 timestamp: new Date().toISOString()
             });
-            
+
             // También actualizar el producto
             const producto = await window.db.productos.where('upc').equals(upc).first();
             if (producto) {
                 await window.db.productos.update(producto.id, { ubicacion: ubicacion });
             }
-            
+
             return true;
         } catch (err) {
             console.error('Error guardando ubicación:', err);
@@ -35,11 +36,11 @@ const LocationModel = {
     // ═══════════════════════════════════════════════════════════
     async getHistorial(upc) {
         try {
-            const ubicaciones = await window.db.ubicaciones
+            const ubicaciones = await window.db.ubicaciones_historico
                 .where('upc')
                 .equals(upc)
                 .toArray();
-            
+
             // Ordenar por fecha descendente
             return ubicaciones.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
         } catch (err) {
@@ -79,15 +80,16 @@ const LocationModel = {
     // ═══════════════════════════════════════════════════════════
     async upsertUbicacion(upc, ubicacion, auxiliarId = null) {
         try {
-            const existing = await window.db.ubicaciones.where('upc').equals(upc).first();
+            const existing = await window.db.ubicaciones_historico.where('upc').equals(upc).first();
             if (existing) {
-                await window.db.ubicaciones.update(existing.id, {
+                await window.db.ubicaciones_historico.update(existing.id, {
                     ubicacion: ubicacion,
                     auxiliar_id: auxiliarId,
                     timestamp: new Date().toISOString()
                 });
             } else {
-                await window.db.ubicaciones.add({
+                await window.db.ubicaciones_historico.add({
+                    id: crypto.randomUUID(),
                     upc: upc,
                     ubicacion: ubicacion,
                     auxiliar_id: auxiliarId,
@@ -143,23 +145,27 @@ const LocationModel = {
     // ═══════════════════════════════════════════════════════════
     async syncToCloud() {
         if (!navigator.onLine || !window.supabaseClient) return false;
-        
+
         try {
-            const ubicaciones = await window.db.ubicaciones.toArray();
-            
+            const ubicaciones = await window.db.ubicaciones_historico.toArray();
+
             if (ubicaciones.length > 0) {
                 const { error } = await window.supabaseClient
                     .from('ubicaciones_historico')
-                    .upsert(ubicaciones.map(u => ({
-                        upc: u.upc,
-                        ubicacion: u.ubicacion,
-                        auxiliar_id: u.auxiliar_id,
-                        timestamp: u.timestamp
-                    })));
-                    
+                    .upsert(
+                        ubicaciones.map(u => ({
+                            id: u.id,
+                            upc: u.upc,
+                            ubicacion: u.ubicacion,
+                            auxiliar_id: u.auxiliar_id,
+                            timestamp: u.timestamp
+                        })),
+                        { onConflict: 'upc' }
+                    );
+
                 if (error) throw error;
             }
-            
+
             return true;
         } catch (err) {
             console.error('Error sincronizando ubicaciones:', err);

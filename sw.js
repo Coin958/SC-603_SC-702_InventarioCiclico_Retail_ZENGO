@@ -12,7 +12,7 @@ const ASSETS = [
     // Controllers
     '/js/controllers/SyncManager.js', '/js/controllers/ScannerController.js',
     '/js/controllers/AdminController.js', '/js/controllers/CycleController.js',
-    '/js/controllers/AuthController.js',
+    '/js/controllers/AuthController.js','/js/controllers/LogController.js',
     // Views
     '/js/views/Components.js', '/js/views/LoginView.js',
     '/js/views/AdminView.js', '/js/views/JefeView.js', '/js/views/AuxiliarView.js',

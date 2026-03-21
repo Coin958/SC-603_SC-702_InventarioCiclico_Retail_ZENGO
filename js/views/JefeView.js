@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-// ZENGO - JefeView v1.5
+// ZENGO - JefeView v1.7.0
 // Solo lógica + HTML — CSS en archivos separados
 // Revisión con tabla Excel CRUD + hallazgos en JSON de tarea
 // ═══════════════════════════════════════════════════════════════
@@ -69,8 +69,6 @@ const JefeView = {
                         <div class="asignar-card glass"><h4><i class="fas fa-user"></i> 2. Auxiliar</h4><div class="auxiliares-list" id="auxiliares-disponibles"></div></div>
                         <div class="asignar-card glass wide"><h4><i class="fas fa-clipboard-check"></i> 3. Confirmar</h4><div class="asignar-resumen" id="asignar-resumen"><div class="resumen-empty"><p>Selecciona categoria y auxiliar</p></div></div><div class="asignar-actions"><button class="btn-secondary" onclick="JefeView.limpiarAsignacion()"><i class="fas fa-eraser"></i> Limpiar</button><button class="btn-primary" id="btn-confirmar" onclick="JefeView.confirmarAsignacion()" disabled><i class="fas fa-paper-plane"></i> Asignar</button></div></div>
                     </div></section>
-                    <section class="categorias-resumen glass" style="margin-top:20px;"><div class="section-header"><h3><i class="fas fa-th-large"></i> Categorias del Inventario</h3><span class="text-dim" id="productos-total-label">0 productos</span></div><div class="categorias-grid" id="categorias-mando"><div class="loading-state"><i class="fas fa-spinner fa-spin"></i></div></div></section>
-                    <section class="tareas-activas glass" style="margin-top:16px;"><div class="section-header"><h3><i class="fas fa-tasks"></i> Tareas en Progreso</h3></div><div class="tareas-list" id="tareas-list"><div class="empty-state small"><p>Sin tareas</p></div></div></section>
                 </div>
 
                 <!-- HALLAZGOS -->
@@ -221,13 +219,11 @@ const JefeView = {
     },
 
     async loadCategorias() {
-        const mc = document.getElementById('categorias-mando');
         const dc = document.getElementById('categorias-disponibles');
         try {
             const productos = await window.db.productos.toArray();
             if (!productos.length) {
-                mc.innerHTML = '<div class="empty-state"><i class="fas fa-database"></i><p>No hay productos</p><small>El admin debe cargar el Excel</small></div>';
-                dc.innerHTML = mc.innerHTML;
+                if (dc) dc.innerHTML = '<div class="empty-state"><i class="fas fa-database"></i><p>No hay productos</p><small>El admin debe cargar el Excel</small></div>';
                 return;
             }
             const categorias = new Map();
@@ -239,29 +235,27 @@ const JefeView = {
             });
             const arr = Array.from(categorias.values()).sort((a, b) => b.productos.length - a.productos.length);
             document.getElementById('total-categorias').textContent = arr.length;
-            document.getElementById('productos-total-label').textContent = productos.length + ' productos';
 
             const activas = await this.getTareasActivas();
             const asignadas = new Set(activas.map(t => t.categoria));
-            const colores = ['#C8102E', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899'];
 
-            mc.innerHTML = arr.map((c, i) => `
-                <div class="categoria-card ${asignadas.has(c.nombre) ? 'asignada' : ''}" style="border-left: 4px solid ${colores[i % 6]}">
-                    <div class="cat-header"><span class="cat-name">${c.nombre}</span>${asignadas.has(c.nombre) ? '<span class="pill-asignada">Asignada</span>' : ''}</div>
-                    <div class="cat-stats"><span>${c.productos.length} productos</span><span>${c.existencia.toLocaleString()} uds</span></div>
-                </div>`).join('');
-
-            const disp = arr.filter(c => !asignadas.has(c.nombre));
-            dc.innerHTML = disp.length
-                ? disp.map((c, i) => `<div class="categoria-item" data-id="${c.nombre}" onclick="JefeView.selectCategoria('${c.nombre}', ${c.productos.length})" style="border-left: 4px solid ${colores[i % 6]}"><div class="cat-info"><strong>${c.nombre}</strong><small>${c.productos.length} productos</small></div><i class="fas fa-chevron-right"></i></div>`).join('')
-                : '<div class="empty-state small"><p>Todas asignadas</p></div>';
+            if (dc) {
+                dc.innerHTML = arr.length
+                    ? arr.map(c => {
+                        const isAsignada = asignadas.has(c.nombre);
+                        return `<div class="categoria-item${isAsignada ? ' cat-asignada' : ''}" data-id="${c.nombre}" ${!isAsignada ? `onclick="JefeView.selectCategoria('${c.nombre}', ${c.productos.length})"` : ''}>
+                            <div class="cat-info"><strong>${c.nombre}</strong><small>${c.productos.length} productos · ${c.existencia.toLocaleString()} uds</small></div>
+                            ${isAsignada ? '<span class="pill-asignada">Asignada</span>' : '<i class="fas fa-chevron-right"></i>'}
+                        </div>`;
+                    }).join('')
+                    : '<div class="empty-state small"><p>Sin categorías</p></div>';
+            }
         } catch (err) {
             console.error('loadCategorias:', err);
-            mc.innerHTML = '<div class="empty-state"><p>Error cargando</p></div>';
         }
     },
-async loadAuxiliares() {
-    const auxs = await window.AuthModel?.getAuxiliares() || [];
+    async loadAuxiliares() {
+        const auxs = await window.AuthModel?.getAuxiliares() || [];
         document.getElementById('auxiliares-count').textContent = auxs.length;
         const c = document.getElementById('auxiliares-disponibles');
         c.innerHTML = auxs.length
@@ -271,11 +265,8 @@ async loadAuxiliares() {
 
     async loadTareas() {
         const activas = await this.getTareasActivas();
-        document.getElementById('tareas-activas').textContent = activas.length;
-        const c = document.getElementById('tareas-list');
-        c.innerHTML = activas.length
-            ? activas.map(t => `<div class="tarea-row"><div class="tarea-info"><strong>${t.categoria}</strong><small>${t.productos_total || 0} prod - ${t.auxiliar_nombre}</small></div><span class="status-pill ${t.estado}">${t.estado === 'en_progreso' ? 'En Progreso' : t.estado === 'finalizado_auxiliar' ? 'Por Revisar' : 'Pendiente'}</span><button class="btn-icon danger" onclick="JefeView.cancelarTarea('${t.id}')"><i class="fas fa-times"></i></button></div>`).join('')
-            : '<div class="empty-state small"><p>Sin tareas activas</p></div>';
+        const counter = document.getElementById('tareas-activas');
+        if (counter) counter.textContent = activas.length;
     },
 
     // ═══ HALLAZGOS (desde JSON de tareas) ═══
@@ -300,11 +291,41 @@ async loadAuxiliares() {
         const s = JSON.parse(localStorage.getItem('zengo_session') || '{}');
         const t = await window.db.tareas.get(tid);
         if (!t) return;
+
+        const hallazgoAntes = JSON.parse(JSON.stringify(t.productos[pi]));
+
         t.productos[pi].hallazgo_estado = 'aprobado';
         t.productos[pi].hallazgo_aprobado_por = s.name;
         t.productos[pi].hallazgo_aprobado_color = 'purpura';
+
         await window.db.tareas.put(t);
         await this.syncTareaToSupabase(t);
+
+        try {
+            await window.LogController?.registrar({
+                tabla: 'hallazgos',
+                accion: 'HALLAZGO_APROBADO',
+                registro_id: `${tid}_${pi}`,
+                usuario_id: s.id || null,
+                usuario_nombre: s.name || 'Jefe',
+                datos_anteriores: {
+                    upc: hallazgoAntes.upc,
+                    descripcion: hallazgoAntes.descripcion,
+                    cantidad: hallazgoAntes.total || hallazgoAntes.cantidad || 0,
+                    estado: hallazgoAntes.hallazgo_estado || 'pendiente'
+                },
+                datos_nuevos: {
+                    upc: t.productos[pi].upc,
+                    descripcion: t.productos[pi].descripcion,
+                    cantidad: t.productos[pi].total || t.productos[pi].cantidad || 0,
+                    estado: t.productos[pi].hallazgo_estado,
+                    aprobado_por: t.productos[pi].hallazgo_aprobado_por
+                }
+            });
+        } catch (err) {
+            console.warn('Error log aprobacion hallazgo:', err);
+        }
+
         window.ZENGO?.toast('Hallazgo aprobado ✓', 'success');
         await this.loadDashboardData();
     },
@@ -313,11 +334,41 @@ async loadAuxiliares() {
         const s = JSON.parse(localStorage.getItem('zengo_session') || '{}');
         const t = await window.db.tareas.get(tid);
         if (!t) return;
+
+        const hallazgoAntes = JSON.parse(JSON.stringify(t.productos[pi]));
+
         t.productos[pi].hallazgo_estado = 'rechazado';
         t.productos[pi].hallazgo_rechazado_por = s.name;
         t.productos[pi].hallazgo_rechazado_color = 'purpura';
+
         await window.db.tareas.put(t);
         await this.syncTareaToSupabase(t);
+
+        try {
+            await window.LogController?.registrar({
+                tabla: 'hallazgos',
+                accion: 'HALLAZGO_RECHAZADO',
+                registro_id: `${tid}_${pi}`,
+                usuario_id: s.id || null,
+                usuario_nombre: s.name || 'Jefe',
+                datos_anteriores: {
+                    upc: hallazgoAntes.upc,
+                    descripcion: hallazgoAntes.descripcion,
+                    cantidad: hallazgoAntes.total || hallazgoAntes.cantidad || 0,
+                    estado: hallazgoAntes.hallazgo_estado || 'pendiente'
+                },
+                datos_nuevos: {
+                    upc: t.productos[pi].upc,
+                    descripcion: t.productos[pi].descripcion,
+                    cantidad: t.productos[pi].total || t.productos[pi].cantidad || 0,
+                    estado: t.productos[pi].hallazgo_estado,
+                    rechazado_por: t.productos[pi].hallazgo_rechazado_por
+                }
+            });
+        } catch (err) {
+            console.warn('Error log rechazo hallazgo:', err);
+        }
+
         window.ZENGO?.toast('Hallazgo rechazado', 'success');
         await this.loadDashboardData();
     },
@@ -364,9 +415,14 @@ async loadAuxiliares() {
     async confirmarAsignacion() {
         const { categoriaId, categoriaNombre, auxiliarId, auxiliarNombre } = this.asignacionActual;
         if (!categoriaId || !auxiliarId) return;
-        const activas = await this.getTareasActivas();
-        if (activas.find(t => t.auxiliar_id === auxiliarId)) {
-            window.ZENGO?.toast(`${auxiliarNombre} ya tiene tarea activa`, 'error');
+        // Solo bloquear si el auxiliar tiene una tarea en estado NO terminal
+        const ESTADOS_TERMINALES = ['aprobado_jefe', 'completado', 'cancelado'];
+        const todasTareas = await window.db.tareas.toArray();
+        const tareaActiva = todasTareas.find(t =>
+            t.auxiliar_id === auxiliarId && !ESTADOS_TERMINALES.includes(t.estado)
+        );
+        if (tareaActiva) {
+            window.ZENGO?.toast(`${auxiliarNombre} ya tiene una tarea activa (${tareaActiva.categoria})`, 'error');
             return;
         }
         const productos = await window.InventoryModel.getProductosPorCategoria(categoriaId);
@@ -392,7 +448,7 @@ async loadAuxiliares() {
                 const { error } = await window.supabaseClient.from('tareas').insert(tarea);
                 ok = !error;
             }
-        } catch (e) {}
+        } catch (e) { }
         await window.db.tareas.put(tarea);
         window.ZENGO?.toast(`✓ ${categoriaNombre} → ${auxiliarNombre}`, ok ? 'success' : 'warning');
         this.limpiarAsignacion();
@@ -408,7 +464,7 @@ async loadAuxiliares() {
 
     async cancelarTarea(tid) {
         if (!await window.ZENGO?.confirm('¿Cancelar esta tarea?', 'Confirmar')) return;
-        try { if (navigator.onLine && window.supabaseClient) await window.supabaseClient.from('tareas').update({ estado: 'cancelado' }).eq('id', tid); } catch (e) {}
+        try { if (navigator.onLine && window.supabaseClient) await window.supabaseClient.from('tareas').update({ estado: 'cancelado' }).eq('id', tid); } catch (e) { }
         await window.db.tareas.update(tid, { estado: 'cancelado' });
         window.ZENGO?.toast('Cancelada', 'success');
         await this.loadDashboardData();
@@ -487,66 +543,220 @@ async loadAuxiliares() {
     },
 
     async agregarConteoRevision(idx) {
-        const p = this.revisionActual.productos[idx];
-        const cant = prompt(`Cantidad para ${p.upc}:`, '0');
-        if (cant === null) return;
-        const ubic = prompt('Ubicacion:', '');
-        if (!ubic) return;
         const s = JSON.parse(localStorage.getItem('zengo_session') || '{}');
+
+        const cantidad = prompt('Cantidad:');
+        if (cantidad === null) return;
+
+        const ubicacion = prompt('Ubicación:');
+        if (!ubicacion) return;
+
+        const p = this.revisionActual.productos[idx];
+        const antes = JSON.parse(JSON.stringify(p));
+
         if (!p.conteos) p.conteos = [];
-        p.conteos.push({ cantidad: parseInt(cant) || 0, ubicacion: ubic.toUpperCase(), timestamp: new Date().toISOString() });
-        p.total = p.conteos.reduce((a, c) => a + c.cantidad, 0);
-        p.diferencia = p.total - p.existencia;
+
+        p.conteos.push({
+            cantidad: parseInt(cantidad) || 0,
+            ubicacion: ubicacion.toUpperCase(),
+            timestamp: new Date().toISOString()
+        });
+
+        p.total = p.conteos.reduce((suma, c) => suma + c.cantidad, 0);
+        p.diferencia = p.total - (p.existencia || 0);
+
         if (!p.modificaciones) p.modificaciones = [];
-        p.modificaciones.push({ nombre: s.name, color: 'purpura', fecha: new Date().toISOString(), accion: 'agregar_conteo' });
+        p.modificaciones.push({
+            nombre: s.name,
+            color: 'purpura',
+            fecha: new Date().toISOString(),
+            accion: 'conteo_agregado_revision'
+        });
+
         await this.guardarRevision();
+
+        try {
+            await window.LogController?.registrar({
+                tabla: 'conteos_realizados',
+                accion: 'CONTEO_AGREGADO_REVISION',
+                registro_id: `${this.revisionActual.id}_${idx}`,
+                usuario_id: s.id || null,
+                usuario_nombre: s.name || 'Jefe',
+                datos_anteriores: {
+                    upc: antes.upc,
+                    total: antes.total || 0,
+                    conteos: antes.conteos || []
+                },
+                datos_nuevos: {
+                    upc: p.upc,
+                    total: p.total || 0,
+                    conteos: p.conteos || []
+                }
+            });
+        } catch (err) {
+            console.warn('Error log agregar conteo revision:', err);
+        }
+
+        this.renderRevisionProductos();
+        window.ZENGO?.toast('Conteo agregado en revisión ✓', 'success');
     },
 
     async editarConteoRevision(pi, ci) {
-        const p = this.revisionActual.productos[pi];
-        const c = p.conteos[ci];
-        const nv = prompt(`Editar cantidad (${c.ubicacion}):`, c.cantidad);
-        if (nv === null) return;
         const s = JSON.parse(localStorage.getItem('zengo_session') || '{}');
-        p.conteos[ci].cantidad = parseInt(nv) || 0;
-        p.total = p.conteos.reduce((a, x) => a + x.cantidad, 0);
-        p.diferencia = p.total - p.existencia;
+
+        const p = this.revisionActual.productos[pi];
+        const antes = JSON.parse(JSON.stringify(p));
+
+        const nuevo = prompt(
+            `Editar cantidad (${p.conteos[ci].ubicacion}):`,
+            p.conteos[ci].cantidad
+        );
+
+        if (nuevo === null) return;
+
+        p.conteos[ci].cantidad = parseInt(nuevo) || 0;
+
+        p.total = p.conteos.reduce((suma, c) => suma + c.cantidad, 0);
+        p.diferencia = p.total - (p.existencia || 0);
+
         if (!p.modificaciones) p.modificaciones = [];
-        p.modificaciones.push({ nombre: s.name, color: 'purpura', fecha: new Date().toISOString(), accion: 'edicion' });
+        p.modificaciones.push({
+            nombre: s.name,
+            color: 'purpura',
+            fecha: new Date().toISOString(),
+            accion: 'conteo_editado_revision'
+        });
+
         await this.guardarRevision();
+
+        try {
+            await window.LogController?.registrar({
+                tabla: 'conteos_realizados',
+                accion: 'CONTEO_EDITADO_REVISION',
+                registro_id: `${this.revisionActual.id}_${pi}_${ci}`,
+                usuario_id: s.id || null,
+                usuario_nombre: s.name || 'Jefe',
+                datos_anteriores: {
+                    upc: antes.upc,
+                    total: antes.total || 0,
+                    conteos: antes.conteos || []
+                },
+                datos_nuevos: {
+                    upc: p.upc,
+                    total: p.total || 0,
+                    conteos: p.conteos || []
+                }
+            });
+        } catch (err) {
+            console.warn('Error log editar conteo revision:', err);
+        }
+
+        this.renderRevisionProductos();
+        window.ZENGO?.toast('Conteo editado ✓', 'success');
     },
 
     async eliminarConteoRevision(pi, ci) {
-        if (!await window.ZENGO?.confirm('¿Eliminar conteo?', 'Confirmar')) return;
+        const confirmado = await window.ZENGO?.confirm('¿Eliminar conteo?', 'Confirmar');
+        if (!confirmado) return;
+
         const s = JSON.parse(localStorage.getItem('zengo_session') || '{}');
+
         const p = this.revisionActual.productos[pi];
+        const antes = JSON.parse(JSON.stringify(p));
+
         p.conteos.splice(ci, 1);
-        p.total = p.conteos.reduce((a, x) => a + x.cantidad, 0);
-        p.diferencia = p.total - p.existencia;
+
+        p.total = p.conteos.reduce((suma, c) => suma + c.cantidad, 0);
+        p.diferencia = p.total - (p.existencia || 0);
+
         if (!p.modificaciones) p.modificaciones = [];
-        p.modificaciones.push({ nombre: s.name, color: 'purpura', fecha: new Date().toISOString(), accion: 'eliminar' });
+        p.modificaciones.push({
+            nombre: s.name,
+            color: 'purpura',
+            fecha: new Date().toISOString(),
+            accion: 'conteo_eliminado_revision'
+        });
+
         await this.guardarRevision();
+
+        try {
+            await window.LogController?.registrar({
+                tabla: 'conteos_realizados',
+                accion: 'CONTEO_ELIMINADO_REVISION',
+                registro_id: `${this.revisionActual.id}_${pi}_${ci}`,
+                usuario_id: s.id || null,
+                usuario_nombre: s.name || 'Jefe',
+                datos_anteriores: {
+                    upc: antes.upc,
+                    total: antes.total || 0,
+                    conteos: antes.conteos || []
+                },
+                datos_nuevos: {
+                    upc: p.upc,
+                    total: p.total || 0,
+                    conteos: p.conteos || []
+                }
+            });
+        } catch (err) {
+            console.warn('Error log eliminar conteo revision:', err);
+        }
+
+        this.renderRevisionProductos();
+        window.ZENGO?.toast('Conteo eliminado', 'success');
     },
 
     async agregarHallazgoJefe() {
         const upc = prompt('UPC del hallazgo:');
         if (!upc) return;
+
         const desc = prompt('Descripcion:', '') || 'Hallazgo Jefe';
         const cant = prompt('Cantidad:', '0');
         const ubic = prompt('Ubicacion:', '') || 'SIN UBICACION';
         const s = JSON.parse(localStorage.getItem('zengo_session') || '{}');
         const cantidad = parseInt(cant) || 0;
+
         this.revisionActual.productos.push({
-            upc, sku: '', descripcion: desc, existencia: 0, precio: 0,
+            upc,
+            sku: '',
+            descripcion: desc,
+            existencia: 0,
+            precio: 0,
             conteos: [{ cantidad, ubicacion: ubic.toUpperCase(), timestamp: new Date().toISOString() }],
-            total: cantidad, diferencia: cantidad,
-            es_hallazgo: true, hallazgo_estado: 'aprobado',
-            hallazgo_reportado_por: s.name, hallazgo_reportado_color: 'purpura',
-            hallazgo_aprobado_por: s.name, hallazgo_aprobado_color: 'purpura',
+            total: cantidad,
+            diferencia: cantidad,
+            es_hallazgo: true,
+            hallazgo_estado: 'aprobado',
+            hallazgo_reportado_por: s.name,
+            hallazgo_reportado_color: 'purpura',
+            hallazgo_aprobado_por: s.name,
+            hallazgo_aprobado_color: 'purpura',
             hallazgo_fecha: new Date().toISOString(),
             modificaciones: [{ nombre: s.name, color: 'purpura', fecha: new Date().toISOString(), accion: 'hallazgo_jefe' }]
         });
+
         await this.guardarRevision();
+
+        const nuevo = this.revisionActual.productos[this.revisionActual.productos.length - 1];
+
+        try {
+            await window.LogController?.registrar({
+                tabla: 'hallazgos',
+                accion: 'HALLAZGO_AGREGADO_JEFE',
+                registro_id: `${this.revisionActual.id}_${this.revisionActual.productos.length - 1}`,
+                usuario_id: s.id || null,
+                usuario_nombre: s.name || 'Jefe',
+                datos_nuevos: {
+                    upc: nuevo.upc,
+                    descripcion: nuevo.descripcion,
+                    cantidad: nuevo.total || 0,
+                    ubicacion: nuevo.conteos?.[0]?.ubicacion || '',
+                    estado: nuevo.hallazgo_estado
+                }
+            });
+        } catch (err) {
+            console.warn('Error log hallazgo jefe:', err);
+        }
+
         window.ZENGO?.toast('Hallazgo agregado ✓', 'success');
     },
 
@@ -691,7 +901,7 @@ async loadAuxiliares() {
             `<div class="consulta-lista-item" onclick="JefeView.verDetalleConsulta('${p.upc}')">
                 <span class="consulta-lista-upc">${p.upc || '—'}</span>
                 <span class="consulta-lista-desc">${p.descripcion || '—'}</span>
-                <span class="consulta-lista-meta">₡${(p.precio||0).toLocaleString()} · Existencia: ${p.existencia||0}</span>
+                <span class="consulta-lista-meta">₡${(p.precio || 0).toLocaleString()} · Existencia: ${p.existencia || 0}</span>
             </div>`).join('')}</div>`;
     },
 
@@ -751,11 +961,11 @@ async loadAuxiliares() {
         const pct = total > 0 ? Math.round((contados / total) * 100) : 0;
 
         const estadoMap = {
-            'pendiente':           { label: 'Pendiente',          cls: 'mc-estado-pend' },
-            'en_progreso':         { label: 'En Progreso',         cls: 'mc-estado-prog' },
-            'finalizado_auxiliar': { label: 'Listo para Revisar',  cls: 'mc-estado-listo' },
-            'devuelto_jefe':       { label: 'Devuelto al Aux',     cls: 'mc-estado-dev' },
-            'devuelto_admin':      { label: 'Devuelto por Admin',  cls: 'mc-estado-rej' }
+            'pendiente': { label: 'Pendiente', cls: 'mc-estado-pend' },
+            'en_progreso': { label: 'En Progreso', cls: 'mc-estado-prog' },
+            'finalizado_auxiliar': { label: 'Listo para Revisar', cls: 'mc-estado-listo' },
+            'devuelto_jefe': { label: 'Devuelto al Aux', cls: 'mc-estado-dev' },
+            'devuelto_admin': { label: 'Devuelto por Admin', cls: 'mc-estado-rej' }
         };
         const estado = estadoMap[t.estado] || { label: t.estado, cls: '' };
 
@@ -791,6 +1001,7 @@ async loadAuxiliares() {
                 <div class="mc-crono"><i class="fas fa-stopwatch"></i> ${cronoHtml}</div>
                 <span class="mc-fecha">${t.fecha_asignacion ? new Date(t.fecha_asignacion).toLocaleDateString('es-CR') : '—'}</span>
             </div>
+            <button class="mc-cancel-btn" onclick="JefeView.cancelarTarea('${t.id}')"><i class="fas fa-times"></i> Cancelar tarea</button>
         </div>`;
     },
 
@@ -800,6 +1011,9 @@ async loadAuxiliares() {
         const style = document.createElement('style');
         style.id = 'jefe-monitor-styles';
         style.innerHTML = `
+.cat-asignada { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+.cat-asignada .cat-info strong { color: rgba(255,255,255,0.5); }
+body.light-mode .cat-asignada .cat-info strong { color: rgba(0,0,0,0.35); }
 .monitor-section { margin-top: 20px; }
 .monitor-grid {
     display: grid;
@@ -839,6 +1053,8 @@ async loadAuxiliares() {
 .mc-crono { font-size: 0.82rem; font-weight: 600; font-family: 'JetBrains Mono', monospace; display: flex; align-items: center; gap: 6px; color: rgba(255,255,255,0.7); }
 .mc-crono i { color: var(--purple, #7C3AED); }
 .mc-fecha { font-size: 0.72rem; color: rgba(255,255,255,0.35); }
+.mc-cancel-btn { width: 100%; padding: 6px; border-radius: 8px; border: 1px solid rgba(239,68,68,0.25); background: rgba(239,68,68,0.08); color: #ef4444; font-size: 0.72rem; cursor: pointer; transition: background 0.2s; }
+.mc-cancel-btn:hover { background: rgba(239,68,68,0.2); }
 /* Light mode */
 body.light-mode .monitor-card { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.08); }
 body.light-mode .mc-aux { color: rgba(0,0,0,0.55); }
@@ -855,4 +1071,4 @@ body.light-mode .mc-progress-bg { background: rgba(0,0,0,0.1); }
 };
 
 window.JefeView = JefeView;
-console.log('✓ JefeView v1.5 cargado');
+console.log('✓ JefeView v1.7.0 cargado');

@@ -7,12 +7,12 @@ const AdminView = {
 
     render(container, state = {}) {
         const session = JSON.parse(localStorage.getItem('zengo_session') || '{}');
-        
-        state = { 
+
+        state = {
             diffTotal: 0, precision: 0, lineasContadas: 0, lineasTotales: 0,
             mermaMonetaria: 0, sobraMonetaria: 0, logs: [], ranking: [],
             tareasActivas: 0, auxiliaresActivos: 0,
-            ...state 
+            ...state
         };
 
         container.innerHTML = `
@@ -206,17 +206,69 @@ const AdminView = {
                     </div>
                 </div>
                 <div id="section-auditoria" class="section-content" style="display:none;">
-                    <section class="glass" style="padding:30px;">
-                        <h2><i class="fas fa-history"></i> Auditoría Completa</h2>
-                        <p class="text-dim">Registros completos de todas las operaciones</p>
+                    <section class="glass audit-full-wrap" style="padding:30px;">
+                        <div class="section-header">
+                            <div>
+                                <h2><i class="fas fa-history"></i> Auditoría Completa</h2>
+                                <p class="text-dim">Trazabilidad de hallazgos, usuarios y conteos</p>
+                            </div>
+                            <button class="btn-primary" onclick="AdminView.cargarAuditoria()">
+                                <i class="fas fa-sync"></i> Recargar
+                            </button>
+                        </div>
+
+                        <div class="audit-filters-grid">
+                            <input id="audit-filter-user" class="filter-input" placeholder="Usuario">
+                            <select id="audit-filter-action" class="filter-input">
+                                <option value="">Todas las acciones</option>
+                                <option value="LOGIN">LOGIN</option>
+                                <option value="LOGOUT">LOGOUT</option>
+                                <option value="FAILED_LOGIN">FAILED_LOGIN</option>
+                                <option value="CREATE_USER">CREATE_USER</option>
+                                <option value="UPDATE_USER">UPDATE_USER</option>
+                                <option value="DELETE_USER">DELETE_USER</option>
+                                <option value="CONTEO_REGISTRADO">CONTEO_REGISTRADO</option>
+                                <option value="CONTEO_EDITADO">CONTEO_EDITADO</option>
+                                <option value="CONTEO_ELIMINADO">CONTEO_ELIMINADO</option>
+                                <option value="CONTEO_AGREGADO_REVISION">CONTEO_AGREGADO_REVISION</option>
+                                <option value="CONTEO_EDITADO_REVISION">CONTEO_EDITADO_REVISION</option>
+                                <option value="CONTEO_ELIMINADO_REVISION">CONTEO_ELIMINADO_REVISION</option>
+                                <option value="HALLAZGO_REPORTADO">HALLAZGO_REPORTADO</option>
+                                <option value="HALLAZGO_APROBADO">HALLAZGO_APROBADO</option>
+                                <option value="HALLAZGO_RECHAZADO">HALLAZGO_RECHAZADO</option>
+                                <option value="HALLAZGO_AGREGADO_JEFE">HALLAZGO_AGREGADO_JEFE</option>
+                            </select>
+                            <input id="audit-filter-table" class="filter-input" placeholder="Tabla">
+                            <input id="audit-filter-text" class="filter-input" placeholder="Texto general">
+                        </div>
+
+                        <div class="audit-filter-actions">
+                            <button class="btn-secondary" onclick="AdminView.aplicarFiltroAuditoria()">Aplicar filtros</button>
+                            <button class="btn-secondary" onclick="AdminView.limpiarFiltroAuditoria()">Limpiar</button>
+                        </div>
+
+                        <div id="audit-full-container" class="table-holder audit-table-wrap">
+                            <div class="empty-state"><i class="fas fa-history"></i><p>Cargando auditoría...</p></div>
+                        </div>
                     </section>
                 </div>
                 <div id="section-config" class="section-content" style="display:none;">
                     <section class="glass" style="padding:30px;">
                         <h2><i class="fas fa-cog"></i> Configuración</h2>
                         <div style="margin-top:20px;">
-                            <button class="btn-primary" onclick="SyncManager.syncPendientes()"><i class="fas fa-sync"></i> Forzar Sync</button>
-                            <button class="btn-danger" onclick="AdminView.limpiarDB()" style="margin-left:10px;"><i class="fas fa-trash"></i> Limpiar BD Local</button>
+                            <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
+                                <button class="btn-primary" onclick="SyncManager.syncPendientes()">
+                                    <i class="fas fa-sync"></i> Forzar Sync
+                                </button>
+
+                                <button class="btn-danger" onclick="AdminView.limpiarDBLocal()">
+                                    <i class="fas fa-laptop"></i> Limpiar BD Local
+                                </button>
+
+                                <button class="btn-danger" onclick="AdminView.cerrarCicloDiario()" style="background:#7f1d1d;">
+                                    <i class="fas fa-broom"></i> Cerrar Ciclo Diario
+                                </button>
+                            </div>
                         </div>
                     </section>
                 </div>
@@ -263,12 +315,12 @@ const AdminView = {
     // ═══════════════════════════════════════════════════════════
     renderLogsTable(logs = []) {
         if (logs.length === 0) return '<div class="empty-state"><i class="fas fa-clipboard-list"></i><p>No hay logs</p></div>';
-        return `<table class="admin-table"><thead><tr><th>HORA</th><th>USUARIO</th><th>ACCIÓN</th><th>SKU</th></tr></thead><tbody>${logs.map(l => `<tr><td class="mono">${l.hora||''}</td><td>${l.usuario||'Sistema'}</td><td>${l.accion||'Conteo'}</td><td><code>${l.sku||'-'}</code></td></tr>`).join('')}</tbody></table>`;
+        return `<table class="admin-table"><thead><tr><th>HORA</th><th>USUARIO</th><th>ACCIÓN</th><th>DETALLE</th></tr></thead><tbody>${logs.map(l => `<tr><td class="mono">${l.hora || ''}</td><td>${l.usuario || 'Sistema'}</td><td>${l.accion || '-'}</td><td class="text-dim" style="font-size:12px">${l.mensaje || '-'}</td></tr>`).join('')}</tbody></table>`;
     },
 
     renderRanking(ranking = []) {
         if (ranking.length === 0) return '<div class="empty-state small"><i class="fas fa-medal"></i><p>Sin datos</p></div>';
-        return ranking.map((u, i) => `<div class="rank-item ${i<3?'top-'+(i+1):''}"><span class="rank-pos">${i+1}</span><div class="rank-avatar">${i===0?'<i class="fas fa-crown"></i>':''}<span>${(u.nombre||'U').charAt(0)}</span></div><div class="rank-info"><strong>${u.nombre||'Usuario'}</strong><small>${u.conteos||0} conteos</small></div><span class="rank-precision">${u.precision||0}%</span></div>`).join('');
+        return ranking.map((u, i) => `<div class="rank-item ${i < 3 ? 'top-' + (i + 1) : ''}"><span class="rank-pos">${i + 1}</span><div class="rank-avatar">${i === 0 ? '<i class="fas fa-crown"></i>' : ''}<span>${(u.nombre || 'U').charAt(0)}</span></div><div class="rank-info"><strong>${u.nombre || 'Usuario'}</strong><small>${u.conteos || 0} conteos</small></div><span class="rank-precision">${u.precision || 0}%</span></div>`).join('');
     },
 
     renderModals() {
@@ -411,6 +463,7 @@ const AdminView = {
         if (section) section.style.display = 'block';
         document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
         document.querySelector(`[data-section="${sectionId}"]`)?.classList.add('active');
+        if (sectionId === 'auditoria') this.cargarAuditoria();
         if (sectionId === 'consulta') this._iniciarScannerConsulta();
         if (sectionId === 'usuarios') this.loadUsuarios();
         if (sectionId === 'ciclicos') this.loadCiclicosConfirmados();
@@ -439,7 +492,7 @@ const AdminView = {
             `<div class="consulta-lista-item" onclick="AdminView.verDetalleConsulta('${p.upc}')">
                 <span class="consulta-lista-upc">${p.upc || '—'}</span>
                 <span class="consulta-lista-desc">${p.descripcion || '—'}</span>
-                <span class="consulta-lista-meta">₡${(p.precio||0).toLocaleString()} · Existencia: ${p.existencia||0}</span>
+                <span class="consulta-lista-meta">₡${(p.precio || 0).toLocaleString()} · Existencia: ${p.existencia || 0}</span>
             </div>`).join('')}</div>`;
     },
 
@@ -460,7 +513,7 @@ const AdminView = {
     async loadDashboardData() {
         try {
             const productos = await window.db.productos.toArray();
-            const conteos = await window.db.conteos.toArray();
+            const conteos = await window.db.conteos_realizados.toArray();
             const tareas = await window.db.tareas.toArray();
             const hallazgos = await window.db.hallazgos.where('estado').equals('pendiente').toArray();
             const lineasTotales = productos.length;
@@ -470,7 +523,7 @@ const AdminView = {
             conteos.forEach(c => {
                 const prod = productosMap.get(c.upc);
                 if (prod) {
-                    const diff = (c.cantidad || 0) - (prod.stock_sistema || 0);
+                    const diff = (c.cantidad || 0) - (prod.existencia || 0);
                     if (diff < 0) { mermaUnidades += Math.abs(diff); mermaMonetaria += Math.abs(diff) * (prod.precio || 0); }
                     else if (diff > 0) { sobraUnidades += diff; sobraMonetaria += diff * (prod.precio || 0); }
                 }
@@ -489,20 +542,47 @@ const AdminView = {
             document.getElementById('mini-hallazgos').textContent = hallazgos.length;
             document.getElementById('mini-sobra').textContent = '+₡' + sobraMonetaria.toLocaleString();
 
-            const logs = conteos.slice(-15).reverse().map(c => ({ hora: new Date(c.timestamp).toLocaleTimeString(), usuario: 'Auxiliar', accion: 'Conteo', sku: c.upc }));
-            document.getElementById('logs-container').innerHTML = this.renderLogsTable(logs);
+            const logs = await window.LogController.obtenerTodos();
+            const topLogs = logs.slice(0, 15).map(l => ({
+                hora: new Date(l.timestamp).toLocaleTimeString('es-CR'),
+                usuario: l.usuario_nombre || 'Sistema',
+                accion: l.accion || '-',
+                mensaje: l.mensaje || l.datos_nuevos?.upc || '-'
+            }));
+            document.getElementById('logs-container').innerHTML = this.renderLogsTable(topLogs);
 
             const ranking = auxiliares.map(a => ({ nombre: a.nombre, precision: Math.floor(Math.random() * 15 + 85), conteos: Math.floor(Math.random() * 50 + 10) })).sort((a, b) => b.precision - a.precision);
             document.getElementById('ranking-container').innerHTML = this.renderRanking(ranking);
         } catch (err) { console.error('Error dashboard:', err); }
     },
 
-    async limpiarDB() {
-        const ok = await window.ZENGO?.confirm('¿Eliminar TODOS los datos locales?', 'Confirmar');
+    async limpiarDBLocal() {
+        const ok = await window.ZENGO?.confirm(
+            '¿Eliminar TODOS los datos locales de este navegador?',
+            'Confirmar'
+        );
         if (!ok) return;
+
         await window.db.clearAll();
-        window.ZENGO?.toast('BD limpiada', 'success');
-        this.loadDashboardData();
+        window.ZENGO?.toast('Base local limpiada', 'success');
+        await this.loadDashboardData();
+    },
+
+    async cerrarCicloDiario() {
+        const ok = await window.ZENGO?.confirm(
+            'Esto eliminará productos, tareas, hallazgos y conteos tanto de Supabase como de la base local. Úsalo solo al cierre del día. ¿Deseas continuar?',
+            'Cerrar ciclo diario'
+        );
+        if (!ok) return;
+
+        const result = await window.AdminController.cerrarCicloDiario();
+
+        if (result?.ok) {
+            window.ZENGO?.toast('Ciclo diario cerrado correctamente', 'success');
+            await this.loadDashboardData();
+        } else {
+            window.ZENGO?.toast(result?.error || 'No se pudo cerrar el ciclo', 'error');
+        }
     },
 
     // ═══════════════════════════════════════════════════════════
@@ -547,9 +627,9 @@ const AdminView = {
                 </tr></thead>
                 <tbody>
                     ${tareas.map(t => {
-                        const prods = t.productos || [];
-                        const contados = prods.filter(p => p.conteos?.length > 0).length;
-                        return `<tr>
+            const prods = t.productos || [];
+            const contados = prods.filter(p => p.conteos?.length > 0).length;
+            return `<tr>
                             <td><strong>${t.categoria || '—'}</strong></td>
                             <td>${t.auxiliar_nombre || '—'}</td>
                             <td>${t.aprobado_por || '—'}</td>
@@ -561,7 +641,7 @@ const AdminView = {
                                 </button>
                             </td>
                         </tr>`;
-                    }).join('')}
+        }).join('')}
                 </tbody>
             </table>`;
     },
@@ -634,6 +714,80 @@ const AdminView = {
                 <td>${hallazgo}</td>
             </tr>`;
         }).join('');
+    },
+
+    // Vistas para Logs
+
+    async cargarAuditoria() {
+        const logs = await window.LogController.obtenerTodos();
+        const container = document.getElementById('audit-full-container');
+        if (!container) return;
+        container.innerHTML = this.renderAuditoriaTable(logs);
+    },
+
+    async aplicarFiltroAuditoria() {
+        const usuario = document.getElementById('audit-filter-user')?.value?.trim() || '';
+        const accion = document.getElementById('audit-filter-action')?.value || '';
+        const tabla = document.getElementById('audit-filter-table')?.value?.trim() || '';
+        const texto = document.getElementById('audit-filter-text')?.value?.trim() || '';
+
+        const logs = await window.LogController.filtrar({ usuario, accion, tabla, texto });
+        const container = document.getElementById('audit-full-container');
+        if (!container) return;
+        container.innerHTML = this.renderAuditoriaTable(logs);
+    },
+
+    async limpiarFiltroAuditoria() {
+        document.getElementById('audit-filter-user').value = '';
+        document.getElementById('audit-filter-action').value = '';
+        document.getElementById('audit-filter-table').value = '';
+        document.getElementById('audit-filter-text').value = '';
+        await this.cargarAuditoria();
+    },
+
+    renderAuditoriaTable(logs = []) {
+        if (!logs.length) {
+            return '<div class="empty-state"><i class="fas fa-history"></i><p>No hay registros</p></div>';
+        }
+
+        return `
+        <table class="admin-table audit-admin-table">
+            <thead>
+                <tr>
+                    <th>FECHA</th>
+                    <th>USUARIO</th>
+                    <th>ACCIÓN</th>
+                    <th>TABLA</th>
+                    <th>ID</th>
+                    <th>DETALLE</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${logs.map(log => `
+                    <tr>
+                        <td class="mono">${new Date(log.timestamp).toLocaleString('es-CR')}</td>
+                        <td>${log.usuario_nombre || 'Sistema'}</td>
+                        <td><span class="role-badge">${log.accion || '-'}</span></td>
+                        <td><code>${log.tabla || '-'}</code></td>
+                        <td>${log.registro_id ?? '-'}</td>
+                        <td class="audit-detail-cell">${this.formatAuditDetail(log)}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+    },
+
+    formatAuditDetail(log) {
+        const prev = log.datos_anteriores
+            ? `<div class="audit-json-block"><strong>Antes</strong><pre>${JSON.stringify(log.datos_anteriores, null, 2)}</pre></div>`
+            : '';
+
+        const next = log.datos_nuevos
+            ? `<div class="audit-json-block"><strong>Después</strong><pre>${JSON.stringify(log.datos_nuevos, null, 2)}</pre></div>`
+            : '';
+
+        return `${prev}${next}` || '-';
     },
 
     // ═══════════════════════════════════════════════════════════
@@ -765,6 +919,60 @@ code { background: rgba(255,255,255,0.1); padding: 2px 8px; border-radius: 4px; 
 .ciclico-header-info { display: flex; align-items: center; gap: 16px; }
 .btn-revisar { background: rgba(59,130,246,0.15); color: #3b82f6; border: none; padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
 .btn-revisar:hover { background: rgba(59,130,246,0.25); }
+.audit-full-wrap { min-height: 70vh; }
+.audit-filters-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin: 20px 0 14px 0;
+}
+.audit-filter-actions {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 18px;
+}
+.audit-table-wrap {
+    max-height: 70vh;
+    overflow: auto;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.02);
+}
+.audit-admin-table td.audit-detail-cell {
+    max-width: 360px;
+    white-space: normal;
+    vertical-align: top;
+}
+.audit-json-block {
+    margin-bottom: 10px;
+    padding: 10px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.04);
+}
+.audit-json-block strong {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 11px;
+    color: rgba(255,255,255,0.65);
+    text-transform: uppercase;
+}
+.audit-json-block pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 11px;
+    color: rgba(255,255,255,0.8);
+    font-family: 'JetBrains Mono', monospace;
+}
+@media (max-width: 1100px) {
+    .audit-filters-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+@media (max-width: 700px) {
+    .audit-filters-grid {
+        grid-template-columns: 1fr;
+    }
+}
 @media (max-width: 1200px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } .admin-main-grid { grid-template-columns: 1fr; } }
 @media (max-width: 768px) { .sidebar { transform: translateX(-100%); } .sidebar.collapsed { transform: translateX(0); width: 260px; } .main-content { margin-left: 0; } .mobile-menu { display: block; } .metrics-grid { grid-template-columns: 1fr; } .usuarios-stats { grid-template-columns: 1fr; } }
         `;

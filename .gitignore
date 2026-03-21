@@ -6,6 +6,7 @@
 Thumbs.db
 Desktop.ini
 .DS_Store
+__MACOSX/
 
 # IDE / Editor
 .vscode/

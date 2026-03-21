@@ -1,102 +1,90 @@
 // ═══════════════════════════════════════════════════════════════
-// ZENGO - Configuración Dexie (IndexedDB)
-// Base de datos local para funcionamiento offline
-// Alineado con esquema Supabase (Feb 2026)
+// ZENGO v1.7 — Configuración Dexie (IndexedDB)
+//
+// IMPORTANTE — Nombre de BD: ZengoDB_v17
+//   Se cambió el nombre intencionalmente desde 'ZengoDB' para
+//   forzar una BD nueva y limpia. IndexedDB prohíbe cambiar el
+//   tipo de PK (++id → id) en tablas existentes; la única salida
+//   robusta es una BD nueva con el esquema correcto desde v1.
+//   La BD anterior ('ZengoDB') queda inactiva en el navegador
+//   pero no causa ningún conflicto.
+//
+// Esquema UUID en tablas de captura:
+//   conteos_realizados, hallazgos, auditoria, ubicaciones_historico
+//   usan 'id' (TEXT/UUID manual) — el cliente genera
+//   crypto.randomUUID() antes de insertar en Dexie y en Supabase.
+//   Esto permite que 100 laptops offline sincronicen sin colisiones.
+//
+// Tablas con ++id (auto-increment integer):
+//   productos, cola_sync → sus IDs son locales; Supabase genera
+//   sus propios IDs BIGINT independientemente.
+//
+// Tablas con id manual no-auto (string legible):
+//   tareas, usuarios → el cliente genera el ID antes de insertar.
 // ═══════════════════════════════════════════════════════════════
 
-// Usar Dexie global del CDN
-const db = new Dexie('ZengoDB');
+const db = new Dexie('ZengoDB_v17');
 
 // ═══════════════════════════════════════════════════════════════
-// ESQUEMA v3 → v4: Alineación con Supabase real
-// Cambios:
-//   productos: categoria_id → categoria, stock_sistema → existencia
-//              eliminados: prioridad, synced (no existen en Supabase)
-//              agregados: valor, created_at
-//   conteos:   agregado synced como campo (no índice)
-//   usuarios:  ya estaba correcto desde v3
+// VERSIÓN 1 — Esquema inicial completo (BD nueva, sin historial)
 // ═══════════════════════════════════════════════════════════════
-db.version(3).stores({
-    productos: '++id, upc, sku, descripcion, categoria_id, stock_sistema, precio, tipo, estatus, prioridad, synced',
-    tareas: 'id, categoria, auxiliar_id, estado, fecha_asignacion',
-    hallazgos: '++id, upc, auxiliar_id, tarea_id, estado, timestamp',
-    conteos: '++id, upc, cantidad, ubicacion, auxiliar_id, tarea_id, timestamp, synced',
-    ubicaciones: '++id, upc, ubicacion, timestamp',
-    sync_queue: '++id, tabla, accion, datos, timestamp',
-    usuarios: 'id, email, nombre, apellido, role_id, activo, fecha_creacion'
-});
+db.version(1).stores({
+    // Productos: ++id local (Supabase genera su propio BIGINT)
+    productos:             '++id, upc, sku, descripcion, categoria, existencia, precio, tipo, estatus',
 
-db.version(4).stores({
-    // Alineado con Supabase: productos(id, upc, sku, descripcion, categoria, existencia, precio, valor, estatus, tipo, created_at)
-    productos: '++id, upc, sku, descripcion, categoria, existencia, precio, tipo, estatus',
-    // Alineado con Supabase: tareas(id, categoria, auxiliar_id, auxiliar_nombre, productos_total, productos_contados, estado, ...)
-    tareas: 'id, categoria, auxiliar_id, estado, fecha_asignacion',
-    // Alineado con Supabase: hallazgos(id, upc, tipo, descripcion, cantidad, ubicacion, reportado_por, estado, ...)
-    hallazgos: '++id, upc, auxiliar_id, tarea_id, estado, timestamp',
-    // Alineado con Supabase: conteos_realizados (Dexie usa nombre corto "conteos")
-    conteos: '++id, upc, cantidad, ubicacion, auxiliar_id, tarea_id, timestamp',
-    // Alineado con Supabase: ubicaciones_historico
-    ubicaciones: '++id, upc, ubicacion, timestamp',
-    // Cola de sincronización (solo local)
-    sync_queue: '++id, tabla, accion, datos, timestamp',
-    // Alineado con Supabase: profiles
-    usuarios: 'id, email, nombre, apellido, role_id, activo, fecha_creacion'
-}).upgrade(tx => {
-    // Migrar datos existentes de productos: renombrar campos
-    return tx.table('productos').toCollection().modify(producto => {
-        // Si tiene stock_sistema pero no existencia, migrar
-        if (producto.stock_sistema !== undefined && producto.existencia === undefined) {
-            producto.existencia = producto.stock_sistema;
-        }
-        // Si tiene categoria_id pero no categoria, migrar
-        if (producto.categoria_id !== undefined && producto.categoria === undefined) {
-            producto.categoria = producto.categoria_id;
-        }
-        // Limpiar campos obsoletos
-        delete producto.stock_sistema;
-        delete producto.categoria_id;
-        delete producto.prioridad;
-        delete producto.synced;
-    });
+    // Tareas: id VARCHAR legible ej. 'TELEVISOR_2026-03-21_001'
+    tareas:                'id, categoria, auxiliar_id, estado, fecha_asignacion',
+
+    // Tablas de captura: id UUID generado por el cliente
+    hallazgos:             'id, upc, auxiliar_id, tarea_id, estado, timestamp',
+    conteos_realizados:    'id, upc, cantidad, ubicacion, auxiliar_id, tarea_id, timestamp',
+    ubicaciones_historico: 'id, &upc, ubicacion, timestamp',   // &upc = índice único
+    auditoria:             'id, tabla, accion, usuario_id, mensaje, timestamp',
+
+    // Cola de sync local: ++id auto-increment (solo vive en Dexie)
+    cola_sync:             '++id, tabla, accion, datos, timestamp, intentos',
+
+    // Usuarios: id INTEGER (mismo que Supabase usuarios.id)
+    usuarios:              'id, email, nombre, apellido, role_id, activo, fecha_creacion'
 });
 
 // ═══════════════════════════════════════════════════════════════
-// HOOKS DE DEBUG
+// EVENTOS
 // ═══════════════════════════════════════════════════════════════
 db.on('ready', () => {
-    console.log('✓ Dexie: Base de datos lista (v4)');
+    console.log('✓ Dexie: Base de datos lista (ZengoDB_v17 · v1 · UUID)');
 });
 
 db.on('blocked', () => {
-    console.warn('⚠ Dexie: Base de datos bloqueada');
+    console.warn('⚠ Dexie: Base de datos bloqueada — cierra otras pestañas de ZENGO');
 });
 
 // ═══════════════════════════════════════════════════════════════
-// MÉTODOS HELPER (incluye usuarios)
+// MÉTODOS HELPER
 // ═══════════════════════════════════════════════════════════════
-db.clearAll = async function() {
+db.clearAll = async function () {
     await db.productos.clear();
     await db.tareas.clear();
     await db.hallazgos.clear();
-    await db.conteos.clear();
-    await db.ubicaciones.clear();
-    
-    await db.sync_queue.clear();
+    await db.conteos_realizados.clear();
+    await db.ubicaciones_historico.clear();
+    await db.cola_sync.clear();
     await db.usuarios.clear();
-    console.log('✓ Dexie: Todas las tablas limpiadas (incluye usuarios)');
+    await db.auditoria.clear();
+    console.log('✓ Dexie: Todas las tablas limpiadas');
 };
 
-db.getStats = async function() {
+db.getStats = async function () {
     return {
-        productos: await db.productos.count(),
-        tareas: await db.tareas.count(),
-        hallazgos: await db.hallazgos.count(),
-        conteos: await db.conteos.count(),
-        ubicaciones: await db.ubicaciones.count(),
-        sync_queue: await db.sync_queue.count(),
-        usuarios: await db.usuarios.count()
+        productos:             await db.productos.count(),
+        tareas:                await db.tareas.count(),
+        hallazgos:             await db.hallazgos.count(),
+        conteos_realizados:    await db.conteos_realizados.count(),
+        ubicaciones_historico: await db.ubicaciones_historico.count(),
+        cola_sync:             await db.cola_sync.count(),
+        usuarios:              await db.usuarios.count(),
+        auditoria:             await db.auditoria.count()
     };
 };
 
-// Exponer globalmente
 window.db = db;

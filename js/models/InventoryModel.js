@@ -228,18 +228,31 @@ const InventoryModel = {
 
         // --- PASO 2: Dexie (local) ---
         try {
-            if (!window.db || !window.db.productos) {
-                console.error('Dexie no disponible');
-            } else {
-                await window.db.productos.clear();
-                await window.db.productos.bulkPut(this.rawItems);
-                const count = await window.db.productos.count();
-                result.dexieOk = count > 0;
-                result.dexieCount = count;
-                console.log('✓ Dexie: guardados', count, 'productos');
+            if (!window.db || !window.db.isOpen()) {
+                console.warn('Dexie no estaba abierto, intentando abrir...');
+                await window.db.open();
             }
+
+            if (!window.db.productos) {
+                throw new Error('La tabla "productos" no existe en Dexie');
+            }
+
+            await window.db.productos.clear();
+
+            // Omitir el campo 'id' generado por processItems (índice interno);
+            // Dexie asigna su propio ++id auto-increment al insertar.
+            const itemsParaDexie = this.rawItems.map(({ id, ...rest }) => rest);
+
+            await window.db.productos.bulkAdd(itemsParaDexie);
+            
+            const count = await window.db.productos.count();
+            result.dexieOk = count > 0;
+            result.dexieCount = count;
+            console.log('✓ Dexie: guardados', count, 'productos');
         } catch (err) {
-            console.error('✗ Error guardando en Dexie:', err);
+            console.error('✗ Error crítico guardando en Dexie:', err);
+            // Intentar recuperar el mensaje para el UI si es posible
+            result.dexieError = err.message;
             result.dexieOk = false;
         }
 
