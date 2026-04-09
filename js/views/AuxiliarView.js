@@ -866,6 +866,42 @@ const AuxiliarView = {
     // ═══ UI ═══
     toggleSidebar() { document.getElementById('sidebar').classList.toggle('collapsed'); },
     toggleTheme() { document.body.classList.toggle('light-mode'); },
+
+    //═══ ACCION REFRESH ═══
+    async refreshAll() {
+        try {
+            const btn = document.querySelector('.btn-refresh i');
+            if (btn) btn.classList.add('fa-spin');
+
+            await window.SyncManager?.syncPendientes?.();
+
+            const session = JSON.parse(localStorage.getItem('zengo_session') || '{}');
+
+            await this.syncProductosFromSupabase();
+            await this.syncTareaFromSupabase(session.id);
+            await this.syncDevueltosFromSupabase(session.id);
+
+            await this.cargarTarea();
+
+            const devueltosVisible =
+                document.getElementById('section-devueltos')?.style.display !== 'none';
+
+            if (devueltosVisible) {
+                await this.loadDevueltosAux();
+            }
+
+            window.ZENGO?.toast('Datos actualizados ✓', 'success');
+
+        } catch (e) {
+            console.error('Error refresh auxiliar:', e);
+            window.ZENGO?.toast('Error al actualizar', 'error');
+
+        } finally {
+            const btn = document.querySelector('.btn-refresh i');
+            if (btn) btn.classList.remove('fa-spin');
+        }
+    },
+
     showSection(id) {
         ScannerController.detenerScannerConsulta();
         document.querySelectorAll('.section-content').forEach(s => s.style.display = 'none');

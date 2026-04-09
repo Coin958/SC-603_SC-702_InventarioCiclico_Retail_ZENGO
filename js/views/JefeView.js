@@ -236,6 +236,7 @@ const JefeView = {
 
     async refreshAll() {
         window.ZENGO?.toast('Actualizando...', 'info');
+        await window.SyncManager?.syncPendientes?.();
         await this.loadDashboardData();
         window.ZENGO?.toast('Actualizado', 'success');
     },
@@ -400,7 +401,8 @@ const JefeView = {
         t.productos[pi].hallazgo_estado = 'aprobado';
         t.productos[pi].hallazgo_aprobado_por = s.name;
         t.productos[pi].hallazgo_aprobado_color = 'purpura';
-        t.productos[pi].precio_hallazgo = precio;
+        t.productos[pi].precio = precio;           // campo estándar para visualización en todas las vistas
+        t.productos[pi].precio_hallazgo = precio;  // mantener por compatibilidad con logs
         t.productos[pi].valor_hallazgo = precio * cantidad; // para KPI Admin
 
         await window.db.tareas.put(t);
@@ -1368,6 +1370,26 @@ body.light-mode .ranking-section { background: rgba(0,0,0,0.02); border-color: r
 body.light-mode .rk-table th { color: rgba(0,0,0,0.4); }
 body.light-mode .rk-table td { border-bottom-color: rgba(0,0,0,0.05); }
 body.light-mode .rk-num { color: rgba(0,0,0,0.6); }
+/* ── Responsive monitor / ranking ── */
+@media (max-width: 1024px) {
+    .monitor-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 768px) {
+    .monitor-grid { grid-template-columns: 1fr; }
+    .mc-stats { grid-template-columns: repeat(3,1fr); }
+    .rk-table { font-size: 0.78rem; }
+    .rk-table th, .rk-table td { padding: 8px 6px; }
+    .rk-score { font-size: 0.88rem; }
+}
+@media (max-width: 480px) {
+    .monitor-card { padding: 14px; }
+    .mc-stats { grid-template-columns: repeat(3,1fr); gap: 4px; }
+    .mc-stat { padding: 6px; }
+    .mc-stat-val { font-size: 0.85rem; }
+    .ranking-section { padding: 12px; }
+    .rk-table th:nth-child(3),
+    .rk-table td:nth-child(3) { display: none; }
+}
         `;
         document.head.appendChild(style);
     },

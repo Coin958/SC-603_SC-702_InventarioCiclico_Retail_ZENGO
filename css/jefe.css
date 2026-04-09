@@ -58,3 +58,18 @@ body.light-mode .jefe-theme .metric-card {
 }
 body.light-mode .jefe-theme .metric-value { color: #1e1e1e; }
 body.light-mode .jefe-theme .metric-label { color: #5f6368; }
+
+/* ═══ Responsive ═══ */
+@media (max-width: 1024px) {
+    .jefe-theme .metrics-grid { grid-template-columns: repeat(2, 1fr) !important; }
+}
+@media (max-width: 768px) {
+    .revision-actions-top { flex-wrap: wrap; }
+    .revision-actions-top button { flex: 1; justify-content: center; }
+    .revision-footer { left: 10px; right: 10px; transform: none; width: auto; }
+    .btn-entregar { justify-content: center; width: 100%; }
+}
+@media (max-width: 600px) {
+    .jefe-theme .metrics-grid { grid-template-columns: 1fr !important; }
+    .jefe-theme .metric-value { font-size: 24px; }
+}
