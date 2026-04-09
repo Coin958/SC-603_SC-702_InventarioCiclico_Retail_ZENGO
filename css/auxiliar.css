@@ -114,12 +114,4 @@
     .search-section { flex-direction: column; }
     .btn-hallazgo { width: 100%; justify-content: center; }
     .progress-info { flex-direction: column; gap: 5px; }
-    #finalizar-section { left: 10px; right: 10px; transform: none; width: auto; }
-    .btn-finalizar { justify-content: center; width: 100%; }
-    .cronometro-badge { padding: 6px 12px; }
-    .cronometro-time { font-size: 15px; }
-}
-@media (max-width: 480px) {
-    .kpi-diff-value { font-size: 22px; }
-    .kpi-ranking-pos { font-size: 32px; }
 }

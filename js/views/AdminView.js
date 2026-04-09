@@ -484,14 +484,7 @@ const AdminView = {
 
     closeModal() { document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none'); },
     filterLogs(q) { document.querySelectorAll('.log-row').forEach(r => r.style.display = r.innerText.toLowerCase().includes(q.toLowerCase()) ? '' : 'none'); },
-    async refreshData() {
-        window.ZENGO?.toast('Actualizando...', 'info');
-        await window.SyncManager?.syncPendientes?.();
-        await window.JefeView?.syncProductosFromSupabase?.();
-        await window.JefeView?.syncTareasFromSupabase?.();
-        await this.loadDashboardData();
-        window.ZENGO?.toast('Actualizado', 'success');
-    },
+    async refreshData() { window.ZENGO?.toast('Actualizando...', 'info'); await this.loadDashboardData(); window.ZENGO?.toast('Actualizado', 'success'); },
 
     // ═══ MODO CONSULTA ═══
     async ejecutarConsulta() {
@@ -1341,8 +1334,7 @@ code { background: rgba(255,255,255,0.1); padding: 2px 8px; border-radius: 4px; 
     }
 }
 @media (max-width: 1200px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } .metrics-grid.secondary { grid-template-columns: repeat(3, 1fr); } .admin-main-grid { grid-template-columns: 1fr; } }
-@media (max-width: 768px) { .sidebar { transform: translateX(-100%); } .sidebar.collapsed { transform: translateX(0); width: 260px; } .main-content { margin-left: 0 !important; } .mobile-menu { display: block; } .metrics-grid { grid-template-columns: 1fr; } .usuarios-stats { grid-template-columns: 1fr; } }
-@media (max-width: 480px) { .metrics-grid.secondary { grid-template-columns: repeat(2, 1fr); } .export-actions { flex-direction: column; } .export-actions button { width: 100%; justify-content: center; } }
+@media (max-width: 768px) { .sidebar { transform: translateX(-100%); } .sidebar.collapsed { transform: translateX(0); width: 260px; } .main-content { margin-left: 0; } .mobile-menu { display: block; } .metrics-grid { grid-template-columns: 1fr; } .usuarios-stats { grid-template-columns: 1fr; } }
 
 /* ── MODO CLARO EN ADMIN ── */
 body.light-mode .admin-theme { background: #f5f6fa !important; color: #1e1e1e !important; }

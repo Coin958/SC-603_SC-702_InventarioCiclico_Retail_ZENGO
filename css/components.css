@@ -177,30 +177,8 @@
     .quick-metrics { grid-template-columns: repeat(2, 1fr); }
     .asignar-grid { grid-template-columns: 1fr; }
     .asignar-card.wide { grid-column: span 1; }
-    .consulta-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 768px) {
     .quick-metrics { grid-template-columns: 1fr; }
     .stats-grid { grid-template-columns: repeat(2, 1fr); }
-    .tarea-row,
-    .hallazgo-row,
-    .ciclico-row { flex-wrap: wrap; gap: 10px; }
-    .hallazgo-actions { width: 100%; justify-content: flex-end; }
-    .resumen-preview { flex-direction: column; gap: 10px; align-items: stretch; }
-    .asignar-actions { flex-wrap: wrap; }
-    .asignar-actions .btn-primary,
-    .asignar-actions .btn-secondary { flex: 1; justify-content: center; }
-    .search-bar { flex-direction: column; }
-    .search-bar input { width: 100%; }
-    .modal-content { width: 95%; }
-    .modal-footer { flex-wrap: wrap; }
-    .modal-footer .btn-primary,
-    .modal-footer .btn-secondary { flex: 1; justify-content: center; }
-}
-@media (max-width: 480px) {
-    .stats-grid { grid-template-columns: 1fr; }
-    .qm-card { padding: 14px; }
-    .qm-value { font-size: 22px; }
-    .stat-value { font-size: 24px; }
-    .categorias-grid { grid-template-columns: 1fr; }
 }

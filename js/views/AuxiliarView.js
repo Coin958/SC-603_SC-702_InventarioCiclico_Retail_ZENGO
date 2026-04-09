@@ -44,8 +44,19 @@ const AuxiliarView = {
                         <div><h1>Conteo <span class="accent-blue">Ciclico</span></h1><p class="text-dim" id="tarea-info">Cargando...</p></div>
                     </div>
                     <div class="header-stats">
-                        <div class="cronometro-badge"><i class="fas fa-stopwatch"></i><span id="cronometro" class="cronometro-time">00:00:00</span></div>
-                        <div class="sync-badge online"><div class="dot"></div><span>ONLINE</span></div>
+                        <div class="sync-badge online">
+                            <div class="dot"></div>
+                            <span>ONLINE</span>
+                        </div>
+
+                        <button class="btn-refresh" onclick="AuxiliarView.refreshAll()">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+
+                        <div class="cronometro-badge">
+                            <i class="fas fa-stopwatch"></i>
+                            <span id="cronometro" class="cronometro-time">00:00:00</span>
+                        </div>
                     </div>
                 </header>
 
@@ -211,6 +222,30 @@ const AuxiliarView = {
         } catch (e) { return false; }
     },
 
+    // ═══ SYNC PRODUCTOS ═══
+    async syncProductosFromSupabase() {
+        try {
+            if (!navigator.onLine || !window.supabaseClient) return;
+
+            const { data, error } = await window.supabaseClient
+                .from('productos')
+                .select('*');
+
+            if (error || !data) {
+                console.warn('Error cargando productos desde Supabase:', error);
+                return;
+            }
+
+            // Reemplazar Dexie local con copia actualizada desde Supabase
+            await window.db.productos.clear();
+            await window.db.productos.bulkPut(data);
+
+            console.log(`✓ Productos sincronizados: ${data.length}`);
+        } catch (e) {
+            console.warn('Sync productos fallido:', e);
+        }
+    },
+
     async registrarLogConteo({ accion, productoAntes = null, productoDespues = null, productoIndex = null }) {
         try {
             const session = JSON.parse(localStorage.getItem('zengo_session') || '{}');
@@ -239,6 +274,7 @@ const AuxiliarView = {
 
     // ═══ CARGAR TAREA ═══
     async cargarTarea() {
+        await this.syncProductosFromSupabase();
         const session = JSON.parse(localStorage.getItem('zengo_session') || '{}');
         let miTarea = await this.syncTareaFromSupabase(session.id);
         if (!miTarea) {
@@ -706,22 +742,22 @@ const AuxiliarView = {
 
             // Leer registro previo de estadisticas_auxiliares
             const prev = await window.db.estadisticas_auxiliares.get(auxId);
-            const total  = (prev?.total_ciclicos || 0) + 1;
+            const total = (prev?.total_ciclicos || 0) + 1;
             const sumaPA = (prev?.suma_pa || 0) + prec.absoluta;
             const sumaPN = (prev?.suma_pn || 0) + prec.neta;
             const promPA = parseFloat((sumaPA / total).toFixed(2));
             const promPN = parseFloat((sumaPN / total).toFixed(2));
-            const score  = parseFloat(((promPA + promPN) / 2).toFixed(2));
+            const score = parseFloat(((promPA + promPN) / 2).toFixed(2));
 
             const row = {
-                auxiliar_id:          auxId,
-                auxiliar_nombre:      session.name || session.nombre || 'Auxiliar',
-                total_ciclicos:       total,
-                suma_pa:              sumaPA,
-                suma_pn:              sumaPN,
-                promedio_pa:          promPA,
-                promedio_pn:          promPN,
-                score_ranking:        score,
+                auxiliar_id: auxId,
+                auxiliar_nombre: session.name || session.nombre || 'Auxiliar',
+                total_ciclicos: total,
+                suma_pa: sumaPA,
+                suma_pn: sumaPN,
+                promedio_pa: promPA,
+                promedio_pn: promPN,
+                score_ranking: score,
                 ultima_actualizacion: new Date().toISOString()
             };
 
@@ -742,7 +778,7 @@ const AuxiliarView = {
     },
 
     async cargarRanking() {
-        const posEl   = document.getElementById('kpi-ranking-pos');
+        const posEl = document.getElementById('kpi-ranking-pos');
         const scoreEl = document.getElementById('kpi-ranking-score');
         if (!posEl || !scoreEl) return;
         try {
@@ -766,14 +802,14 @@ const AuxiliarView = {
 
             const miPos = todos.findIndex(a => a.auxiliar_id === session.id);
             if (miPos !== -1) {
-                posEl.textContent   = '#' + (miPos + 1);
+                posEl.textContent = '#' + (miPos + 1);
                 scoreEl.textContent = 'Score: ' + todos[miPos].score_ranking + '%';
             } else {
-                posEl.textContent   = '—';
+                posEl.textContent = '—';
                 scoreEl.textContent = 'Sin ciclos aún';
             }
         } catch (e) {
-            posEl.textContent   = '—';
+            posEl.textContent = '—';
             scoreEl.textContent = 'Sin datos';
         }
     },
@@ -872,8 +908,6 @@ const AuxiliarView = {
         try {
             const btn = document.querySelector('.btn-refresh i');
             if (btn) btn.classList.add('fa-spin');
-
-            await window.SyncManager?.syncPendientes?.();
 
             const session = JSON.parse(localStorage.getItem('zengo_session') || '{}');
 

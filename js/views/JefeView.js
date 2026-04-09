@@ -221,8 +221,33 @@ const JefeView = {
         } catch (e) { return false; }
     },
 
+    // ═══ SYNC PRODUCTOS ═══
+    async syncProductosFromSupabase() {
+        try {
+            if (!navigator.onLine || !window.supabaseClient) return;
+
+            const { data, error } = await window.supabaseClient
+                .from('productos')
+                .select('*');
+
+            if (error || !data) {
+                console.warn('Error cargando productos desde Supabase:', error);
+                return;
+            }
+
+            // Reemplazar Dexie local con copia actualizada desde Supabase
+            await window.db.productos.clear();
+            await window.db.productos.bulkPut(data);
+
+            console.log(`✓ Productos sincronizados: ${data.length}`);
+        } catch (e) {
+            console.warn('Sync productos fallido:', e);
+        }
+    },
+
     // ═══ DATOS ═══
     async loadDashboardData() {
+        await this.syncProductosFromSupabase();
         await this.syncTareasFromSupabase();
         await this.loadCategorias();
         await this.loadTareas();
@@ -236,7 +261,6 @@ const JefeView = {
 
     async refreshAll() {
         window.ZENGO?.toast('Actualizando...', 'info');
-        await window.SyncManager?.syncPendientes?.();
         await this.loadDashboardData();
         window.ZENGO?.toast('Actualizado', 'success');
     },
@@ -401,8 +425,8 @@ const JefeView = {
         t.productos[pi].hallazgo_estado = 'aprobado';
         t.productos[pi].hallazgo_aprobado_por = s.name;
         t.productos[pi].hallazgo_aprobado_color = 'purpura';
-        t.productos[pi].precio = precio;           // campo estándar para visualización en todas las vistas
-        t.productos[pi].precio_hallazgo = precio;  // mantener por compatibilidad con logs
+        t.productos[pi].precio = precio;
+        t.productos[pi].precio_hallazgo = precio;  // Se mantiene para historial y logs
         t.productos[pi].valor_hallazgo = precio * cantidad; // para KPI Admin
 
         await window.db.tareas.put(t);
@@ -978,7 +1002,7 @@ const JefeView = {
             const sumaPN = (prev?.suma_pn || 0) + pn;
             const promPA = parseFloat((sumaPA / total).toFixed(2));
             const promPN = parseFloat((sumaPN / total).toFixed(2));
-            const score  = parseFloat(((promPA + promPN) / 2).toFixed(2));
+            const score = parseFloat(((promPA + promPN) / 2).toFixed(2));
 
             const stats = {
                 auxiliar_id: auxId,
@@ -1282,8 +1306,8 @@ const JefeView = {
             </tr></thead>
             <tbody>
                 ${stats.map((s, i) => {
-                    const scoreColor = s.score_ranking >= 95 ? '#22c55e' : s.score_ranking >= 85 ? '#f59e0b' : '#ef4444';
-                    return `<tr class="${i < 3 ? 'rk-top' : ''}">
+            const scoreColor = s.score_ranking >= 95 ? '#22c55e' : s.score_ranking >= 85 ? '#f59e0b' : '#ef4444';
+            return `<tr class="${i < 3 ? 'rk-top' : ''}">
                         <td class="rk-pos">${medals[i] || (i + 1)}</td>
                         <td class="rk-name"><div class="rk-avatar">${(s.auxiliar_nombre || 'A').charAt(0).toUpperCase()}</div>${s.auxiliar_nombre || '—'}</td>
                         <td class="rk-num">${s.total_ciclicos}</td>
@@ -1291,7 +1315,7 @@ const JefeView = {
                         <td class="rk-num">${s.promedio_pn?.toFixed(1)}%</td>
                         <td class="rk-score" style="color:${scoreColor}">${s.score_ranking?.toFixed(1)}%</td>
                     </tr>`;
-                }).join('')}
+        }).join('')}
             </tbody>
         </table>`;
     },
@@ -1370,26 +1394,6 @@ body.light-mode .ranking-section { background: rgba(0,0,0,0.02); border-color: r
 body.light-mode .rk-table th { color: rgba(0,0,0,0.4); }
 body.light-mode .rk-table td { border-bottom-color: rgba(0,0,0,0.05); }
 body.light-mode .rk-num { color: rgba(0,0,0,0.6); }
-/* ── Responsive monitor / ranking ── */
-@media (max-width: 1024px) {
-    .monitor-grid { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 768px) {
-    .monitor-grid { grid-template-columns: 1fr; }
-    .mc-stats { grid-template-columns: repeat(3,1fr); }
-    .rk-table { font-size: 0.78rem; }
-    .rk-table th, .rk-table td { padding: 8px 6px; }
-    .rk-score { font-size: 0.88rem; }
-}
-@media (max-width: 480px) {
-    .monitor-card { padding: 14px; }
-    .mc-stats { grid-template-columns: repeat(3,1fr); gap: 4px; }
-    .mc-stat { padding: 6px; }
-    .mc-stat-val { font-size: 0.85rem; }
-    .ranking-section { padding: 12px; }
-    .rk-table th:nth-child(3),
-    .rk-table td:nth-child(3) { display: none; }
-}
         `;
         document.head.appendChild(style);
     },

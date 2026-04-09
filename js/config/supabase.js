@@ -4,8 +4,8 @@
 // MockClient con encadenamiento completo para modo offline
 // ═══════════════════════════════════════════════════════════════
 
-const SUPABASE_URL = "https://rialsyihreilemweovta.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_WNyHOiV9pCY-G2OnWET8lQ_F2KIx8vJ";
+const SUPABASE_URL = "https://jpyfuyqbyfxswtvaklpp.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpweWZ1eXFieWZ4c3d0dmFrbHBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4NDM3NjEsImV4cCI6MjA4OTQxOTc2MX0.2-_akYK47oM0e-X1Db72yNbz6UoQ4eMKfB7HApxQrqA";
 
 let supabaseClient = null;
 

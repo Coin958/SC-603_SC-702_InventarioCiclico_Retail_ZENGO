@@ -92,15 +92,4 @@
     .tabla-ciclico { font-size: 11px; }
     .tabla-ciclico th,
     .tabla-ciclico td { padding: 6px 5px; }
-    .col-desc { max-width: 140px; }
-    .col-sku { max-width: 60px; }
-}
-@media (max-width: 480px) {
-    .tabla-ciclico { font-size: 10px; }
-    .tabla-ciclico th,
-    .tabla-ciclico td { padding: 5px 4px; }
-    /* Ocultar columnas de baja prioridad en pantalla muy pequeña */
-    .col-precio,
-    .tabla-ciclico th:nth-child(5),
-    .tabla-ciclico td:nth-child(5) { display: none; }
 }
