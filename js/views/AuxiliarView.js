@@ -197,6 +197,8 @@ const AuxiliarView = {
                             local.productos[li].hallazgo_estado = rp.hallazgo_estado;
                             local.productos[li].hallazgo_aprobado_por = rp.hallazgo_aprobado_por;
                             local.productos[li].hallazgo_rechazado_por = rp.hallazgo_rechazado_por;
+                            local.productos[li].precio = rp.precio;
+                            local.productos[li].precio_hallazgo = rp.precio_hallazgo;
                         }
                     }
                 }

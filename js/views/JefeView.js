@@ -460,7 +460,10 @@ const JefeView = {
             console.warn('Error log aprobacion hallazgo:', err);
         }
 
-        window.ZENGO?.toast(`Hallazgo aprobado ✓  ·  ₡${(precio * cantidad).toLocaleString()}`, 'success');
+        window.ZENGO?.toast(
+            `Hallazgo aprobado ✓ · Precio unitario asignado: ₡${precio.toLocaleString()}`,
+            'success'
+        );
         await this.loadDashboardData();
     },
 
