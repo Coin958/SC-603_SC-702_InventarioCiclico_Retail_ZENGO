@@ -175,32 +175,58 @@ const JefeView = {
     async syncTareasFromSupabase() {
         try {
             if (!navigator.onLine || !window.supabaseClient) return;
-            const { data, error } = await window.supabaseClient.from('tareas').select('*');
+
+            const { data, error } = await window.supabaseClient
+                .from('tareas')
+                .select('*');
+
             if (error || !data) return;
 
-            for (const remota of data) {
+            const remotas = data || [];
+            const remoteIds = new Set(remotas.map(t => String(t.id)));
+
+            //BORRAR tareas locales que ya NO existen en Supabase
+            const locales = await window.db.tareas.toArray();
+            for (const local of locales) {
+                if (!remoteIds.has(String(local.id))) {
+                    await window.db.tareas.delete(local.id);
+                }
+            }
+
+            //INSERTAR / ACTUALIZAR tareas
+            for (const remota of remotas) {
                 const local = await window.db.tareas.get(remota.id);
+
                 if (!local) {
                     await window.db.tareas.put(remota);
                 } else {
                     const localContados = local.productos_contados || 0;
                     const remotaContados = remota.productos_contados || 0;
+
                     const localHallazgos = (local.productos || []).filter(p => p.es_hallazgo).length;
                     const remotaHallazgos = (remota.productos || []).filter(p => p.es_hallazgo).length;
 
                     if (remotaContados > localContados || remotaHallazgos > localHallazgos) {
                         await window.db.tareas.put(remota);
-                    } else if (remotaContados === localContados && remotaHallazgos === localHallazgos) {
-                        const remotaAprobados = (remota.productos || []).filter(p => p.es_hallazgo && p.hallazgo_estado !== 'pendiente').length;
-                        const localAprobados = (local.productos || []).filter(p => p.es_hallazgo && p.hallazgo_estado !== 'pendiente').length;
+                    }
+                    else if (remotaContados === localContados && remotaHallazgos === localHallazgos) {
+
+                        const remotaAprobados = (remota.productos || [])
+                            .filter(p => p.es_hallazgo && p.hallazgo_estado !== 'pendiente').length;
+
+                        const localAprobados = (local.productos || [])
+                            .filter(p => p.es_hallazgo && p.hallazgo_estado !== 'pendiente').length;
+
                         if (remotaAprobados >= localAprobados) {
                             await window.db.tareas.put(remota);
                         }
                     }
-                    // Si local tiene más progreso → no sobrescribir
                 }
             }
-        } catch (e) { console.warn('Sync tareas fallido:', e); }
+
+        } catch (e) {
+            console.warn('Sync tareas fallido:', e);
+        }
     },
 
     async syncTareaToSupabase(tarea) {
@@ -266,7 +292,9 @@ const JefeView = {
     },
 
     async getTareasActivas() {
-        return (await window.db.tareas.toArray()).filter(t => t.estado !== 'completado' && t.estado !== 'cancelado');
+        const estadosActivos = ['pendiente', 'en_progreso'];
+        return (await window.db.tareas.toArray())
+            .filter(t => estadosActivos.includes(t.estado));
     },
 
     async loadCategorias() {
