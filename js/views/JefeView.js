@@ -171,7 +171,7 @@ const JefeView = {
         this.loadDashboardData();
     },
 
-    // ═══ SYNC ═══
+    // SYNC DE TAREAS
     async syncTareasFromSupabase() {
         try {
             if (!navigator.onLine || !window.supabaseClient) return;
@@ -185,7 +185,7 @@ const JefeView = {
             const remotas = data || [];
             const remoteIds = new Set(remotas.map(t => String(t.id)));
 
-            //BORRAR tareas locales que ya NO existen en Supabase
+            // 1. Borrar tareas locales que ya no existen en Supabase
             const locales = await window.db.tareas.toArray();
             for (const local of locales) {
                 if (!remoteIds.has(String(local.id))) {
@@ -193,7 +193,7 @@ const JefeView = {
                 }
             }
 
-            //INSERTAR / ACTUALIZAR tareas
+            // 2. Insertar / actualizar tareas remotas
             for (const remota of remotas) {
                 const local = await window.db.tareas.get(remota.id);
 
@@ -202,15 +202,12 @@ const JefeView = {
                 } else {
                     const localContados = local.productos_contados || 0;
                     const remotaContados = remota.productos_contados || 0;
-
                     const localHallazgos = (local.productos || []).filter(p => p.es_hallazgo).length;
                     const remotaHallazgos = (remota.productos || []).filter(p => p.es_hallazgo).length;
 
                     if (remotaContados > localContados || remotaHallazgos > localHallazgos) {
                         await window.db.tareas.put(remota);
-                    }
-                    else if (remotaContados === localContados && remotaHallazgos === localHallazgos) {
-
+                    } else if (remotaContados === localContados && remotaHallazgos === localHallazgos) {
                         const remotaAprobados = (remota.productos || [])
                             .filter(p => p.es_hallazgo && p.hallazgo_estado !== 'pendiente').length;
 
@@ -223,7 +220,6 @@ const JefeView = {
                     }
                 }
             }
-
         } catch (e) {
             console.warn('Sync tareas fallido:', e);
         }
@@ -292,9 +288,17 @@ const JefeView = {
     },
 
     async getTareasActivas() {
-        const estadosActivos = ['pendiente', 'en_progreso'];
+        const estadosBloqueantes = [
+            'pendiente',
+            'en_progreso',
+            'finalizado_auxiliar',
+            'aprobado_jefe',
+            'devuelto_admin',
+            'devuelto_jefe'
+        ];
+
         return (await window.db.tareas.toArray())
-            .filter(t => estadosActivos.includes(t.estado));
+            .filter(t => estadosBloqueantes.includes(t.estado));
     },
 
     async loadCategorias() {
