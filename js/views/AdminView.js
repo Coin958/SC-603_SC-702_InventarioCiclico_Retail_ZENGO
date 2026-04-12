@@ -484,7 +484,11 @@ const AdminView = {
 
     closeModal() { document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none'); },
     filterLogs(q) { document.querySelectorAll('.log-row').forEach(r => r.style.display = r.innerText.toLowerCase().includes(q.toLowerCase()) ? '' : 'none'); },
-    async refreshData() { window.ZENGO?.toast('Actualizando...', 'info'); await this.loadDashboardData(); window.ZENGO?.toast('Actualizado', 'success'); },
+    async refreshData() {
+        window.ZENGO?.toast('Actualizando...', 'info');
+        await this.loadDashboardData();
+        window.ZENGO?.toast('Actualizado', 'success');
+    },
 
     // ═══ MODO CONSULTA ═══
     async ejecutarConsulta() {
@@ -523,8 +527,56 @@ const AdminView = {
         });
     },
 
+    // ═══ SYNC DESDE SUPABASE ═══
+    async syncProductosFromSupabase() {
+        try {
+            if (!navigator.onLine || !window.supabaseClient) return;
+
+            const { data, error } = await window.supabaseClient
+                .from('productos')
+                .select('*');
+
+            if (error || !data) {
+                console.warn('Error cargando productos desde Supabase:', error);
+                return;
+            }
+
+            await window.db.productos.clear();
+            await window.db.productos.bulkPut(data);
+
+            console.log(`✓ Admin sync productos: ${data.length}`);
+        } catch (e) {
+            console.warn('Sync productos admin fallido:', e);
+        }
+    },
+
+    async syncTareasFromSupabase() {
+        try {
+            if (!navigator.onLine || !window.supabaseClient) return;
+
+            const { data, error } = await window.supabaseClient
+                .from('tareas')
+                .select('*');
+
+            if (error || !data) {
+                console.warn('Error cargando tareas desde Supabase:', error);
+                return;
+            }
+
+            await window.db.tareas.clear();
+            await window.db.tareas.bulkPut(data);
+
+            console.log(`✓ Admin sync tareas: ${data.length}`);
+        } catch (e) {
+            console.warn('Sync tareas admin fallido:', e);
+        }
+    },
+
     async loadDashboardData() {
         try {
+            await this.syncProductosFromSupabase();
+            await this.syncTareasFromSupabase();
+
             const productos = await window.db.productos.toArray();
             const tareas = await window.db.tareas.toArray();
             const productosMap = new Map(productos.map(p => [p.upc, p]));
