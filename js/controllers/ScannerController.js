@@ -120,6 +120,12 @@ const ScannerController = {
         }, (err) => {
             if (err) {
                 console.warn('Quagga init error:', err);
+                // Quagga.init() es asincrono: para cuando este callback llega
+                // con un error (permiso de camara denegado, sin hardware, etc.)
+                // startQuagga() ya devolvio true hace rato — sin esto el
+                // contenedor se queda vacio para siempre, sin ningun aviso.
+                const el = document.getElementById(containerId);
+                if (el) el.innerHTML = '<div class="scanner-no-camera"><i class="fas fa-camera-slash"></i><p>Cámara no disponible — verifica los permisos del navegador</p></div>';
                 return;
             }
             Quagga.start();
