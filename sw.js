@@ -1,5 +1,5 @@
-// ZENGO Service Worker v1.5.1 — Estructura MVC
-const CACHE_NAME = 'zengo-v1.5.1';
+// ZENGO Service Worker v1.5.2 — Estructura MVC
+const CACHE_NAME = 'zengo-v1.5.2';
 const ASSETS = [
     '/', '/index.html',
     // CSS
@@ -12,7 +12,7 @@ const ASSETS = [
     '/js/models/PrecisionCalculator.js',
     // Controllers
     '/js/controllers/SyncManager.js', '/js/controllers/ScannerController.js',
-    '/js/controllers/AdminController.js',
+    '/js/controllers/AdminController.js', '/js/controllers/RealtimeManager.js',
     '/js/controllers/AuthController.js','/js/controllers/LogController.js',
     // Views
     '/js/views/LoginView.js',
@@ -52,7 +52,13 @@ self.addEventListener('fetch', e => {
                 caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
                 return r;
             })
-            .catch(() => caches.match(e.request).then(r => r || new Response('Offline')))
+            // Si el request no estaba precacheado y tampoco hay red, el
+            // fallback NO debe ser texto arbitrario: un <script> que falta
+            // del precache (ver ASSETS arriba) terminaba ejecutando el
+            // string "Offline" como si fuera JS -> ReferenceError que
+            // trababa el arranque completo de la app sin red. Vacío es un
+            // no-op seguro para JS/CSS en vez de un crash.
+            .catch(() => caches.match(e.request).then(r => r || new Response('', { status: 503 })))
     );
 });
 

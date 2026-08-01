@@ -32,11 +32,20 @@ const AuthModel = {
     async init() {
         try {
             if (navigator.onLine && window.supabaseClient) {
-                const { data, error } = await window.supabaseClient
-                    .from('usuarios')
-                    .select('*')
-                    .eq('activo', true)
-                    .order('id');
+                // navigator.onLine solo refleja si la interfaz de red está
+                // activa, no si hay internet real — en un WiFi "conectado
+                // pero sin salida" (típico de redes universitarias
+                // saturadas) sigue reportando true, y fetch() no tiene
+                // timeout por defecto: sin este límite, esta consulta podía
+                // quedarse colgada para siempre y la app nunca salía de la
+                // pantalla de carga, ni siquiera para caer al Dexie local.
+                const timeout = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Tiempo de espera agotado consultando usuarios')), 6000)
+                );
+                const { data, error } = await Promise.race([
+                    window.supabaseClient.from('usuarios').select('*').eq('activo', true).order('id'),
+                    timeout
+                ]);
 
                 if (!error && data && data.length > 0) {
                     // Limpiar tabla local y cargar datos frescos de Supabase
@@ -72,13 +81,22 @@ const AuthModel = {
         try {
             // 1. Intentar contra Supabase
             if (navigator.onLine && window.supabaseClient) {
-                const { data, error } = await window.supabaseClient
-                    .from('usuarios')
-                    .select('*')
-                    .eq('email', email)
-                    .eq('password', password)
-                    .eq('activo', true)
-                    .single();
+                // Mismo riesgo que en init(): sin timeout, un WiFi
+                // "conectado pero sin salida real" deja este login colgado
+                // para siempre (spinner sin fin) en vez de caer al Dexie
+                // local que ya existe mas abajo para justo este caso.
+                const timeout = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Tiempo de espera agotado')), 6000)
+                );
+                const { data, error } = await Promise.race([
+                    window.supabaseClient.from('usuarios')
+                        .select('*')
+                        .eq('email', email)
+                        .eq('password', password)
+                        .eq('activo', true)
+                        .single(),
+                    timeout
+                ]);
 
                 if (!error && data) {
                     await this._saveToLocal(data);
