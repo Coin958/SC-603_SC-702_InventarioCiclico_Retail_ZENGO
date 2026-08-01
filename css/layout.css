@@ -94,7 +94,21 @@
 /* ═══ Responsive ═══ */
 @media (max-width: 768px) {
     .sidebar { transform: translateX(-100%); }
-    .sidebar.collapsed { transform: translateX(0); }
     .main-content { margin-left: 0; }
     .mobile-menu { display: block; }
+
+    /* En escritorio ".collapsed" = angosto y solo iconos. En movil el
+       mismo boton/clase se reusa para "abrir el menu" — ahi tiene que
+       verse completo (ancho + etiquetas de texto), no angosto, o el
+       usuario ve iconos sueltos sin saber que hace cada uno. */
+    .sidebar.collapsed {
+        transform: translateX(0);
+        width: 240px;
+    }
+    .sidebar.collapsed .user-card { display: flex; }
+    .sidebar.collapsed span { display: inline; }
+    .sidebar.collapsed .badge-boss,
+    .sidebar.collapsed .badge-aux,
+    .sidebar.collapsed .badge-admin { display: inline-block; }
+    .sidebar.collapsed .badge-alert { display: inline-flex; }
 }
