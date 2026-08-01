@@ -53,7 +53,7 @@ const ScannerController = {
                         const { data: tareasData } = await window.supabaseClient
                             .from('tareas')
                             .select('productos')
-                            .contains('productos', [{ upc: producto.upc }]);
+                            .contains('productos', JSON.stringify([{ upc: producto.upc }]));
                         if (tareasData) {
                             tareasData.forEach(t => {
                                 (t.productos || []).forEach(prod => {
