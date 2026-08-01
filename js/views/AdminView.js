@@ -223,7 +223,7 @@ const AdminView = {
                             <table class="admin-table">
                                 <thead><tr>
                                     <th>#</th><th>UPC</th><th>SKU</th><th>DESCRIPCIÓN</th>
-                                    <th>CAT.</th><th>PRECIO</th><th>EXIST.</th>
+                                    <th>Categoría</th><th>PRECIO</th><th>Existencia</th>
                                     <th>CONTADO</th><th>DIFERENCIA</th><th>UBICACIÓN</th><th>HALLAZGO</th>
                                 </tr></thead>
                                 <tbody id="ciclico-admin-tbody"></tbody>
