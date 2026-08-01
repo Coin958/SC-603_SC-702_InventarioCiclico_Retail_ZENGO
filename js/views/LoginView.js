@@ -9,7 +9,7 @@ const LoginView = {
         container.innerHTML = `
         <div class="login-wrapper">
             <video class="login-video-bg" autoplay muted loop playsinline>
-                <source src="kling_20260328_作品_First_pers_3081_0.mp4" type="video/mp4">
+                <source src="login-background.mp4" type="video/mp4">
             </video>
             <div class="login-video-overlay"></div>
 

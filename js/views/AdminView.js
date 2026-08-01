@@ -208,6 +208,9 @@ const AdminView = {
                                 </div>
                             </div>
                             <div style="display:flex;gap:10px;">
+                                <button class="btn-danger" onclick="AdminView.anularCiclicoPorMalConteo()" style="background:#7f1d1d;">
+                                    <i class="fas fa-ban"></i> Anular por mal conteo
+                                </button>
                                 <button class="btn-danger" onclick="AdminView.rechazarCiclico()">
                                     <i class="fas fa-undo"></i> Devolver al Jefe
                                 </button>
@@ -270,7 +273,7 @@ const AdminView = {
                         <h2><i class="fas fa-cog"></i> Configuración</h2>
                         <div style="margin-top:20px;">
                             <div style="margin-top:20px; display:flex; gap:10px; flex-wrap:wrap;">
-                                <button class="btn-primary" onclick="SyncManager.syncPendientes()">
+                                <button class="btn-primary" onclick="AdminView.forzarSync()">
                                     <i class="fas fa-sync"></i> Forzar Sync
                                 </button>
 
@@ -323,30 +326,8 @@ const AdminView = {
         this.loadUsuarios();
     },
 
-    // ═══════════════════════════════════════════════════════════
-    // RENDER HELPERS
-    // ═══════════════════════════════════════════════════════════
-    renderLogsTable(logs = []) {
-        if (logs.length === 0) return '<div class="empty-state"><i class="fas fa-clipboard-list"></i><p>No hay logs</p></div>';
-        return `<table class="admin-table"><thead><tr><th>HORA</th><th>USUARIO</th><th>DETALLE</th></tr></thead><tbody>${logs.map(l => `<tr><td class="mono">${l.hora || ''}</td><td>${l.usuario || 'Sistema'}</td><td class="text-dim" style="font-size:12px">${l.mensaje || '-'}</td></tr>`).join('')}</tbody></table>`;
-    },
-
-    renderRanking(ranking = []) {
-        if (ranking.length === 0) return '<div class="empty-state small"><i class="fas fa-medal"></i><p>Sin datos</p></div>';
-        return ranking.map((u, i) => `<div class="rank-item ${i < 3 ? 'top-' + (i + 1) : ''}"><span class="rank-pos">${i + 1}</span><div class="rank-avatar">${i === 0 ? '<i class="fas fa-crown"></i>' : ''}<span>${(u.nombre || 'U').charAt(0)}</span></div><div class="rank-info"><strong>${u.nombre || 'Usuario'}</strong><small>${u.conteos || 0} conteos</small></div><span class="rank-precision">${u.precision || 0}%</span></div>`).join('');
-    },
-
     renderModals() {
         return `
-        <div id="consulta-modal" class="modal-overlay" style="display:none;">
-            <div class="modal-content glass">
-                <div class="modal-header"><h2><i class="fas fa-search"></i> Consulta</h2><button class="modal-close" onclick="AdminView.closeModal()"><i class="fas fa-times"></i></button></div>
-                <div class="modal-body">
-                    <div class="consulta-search"><input type="text" id="admin-consulta-input" placeholder="UPC/SKU..."><button class="btn-primary" onclick="AdminView.buscarProducto()"><i class="fas fa-search"></i></button></div>
-                    <div id="admin-consulta-resultado"><div class="empty-state"><i class="fas fa-barcode"></i><p>Escanea un producto</p></div></div>
-                </div>
-            </div>
-        </div>
         <div id="usuario-modal" class="modal-overlay" style="display:none;">
             <div class="modal-content glass">
                 <div class="modal-header"><h2 id="usuario-modal-title"><i class="fas fa-user-plus"></i> Nuevo Usuario</h2><button class="modal-close" onclick="AdminView.closeModal()"><i class="fas fa-times"></i></button></div>
@@ -389,11 +370,11 @@ const AdminView = {
                 <tr data-id="${u.id}">
                     <td>
                         <div class="user-cell">
-                            <div class="user-avatar-mini ${u.role.toLowerCase()}">${(u.nombre || 'U').charAt(0)}</div>
-                            <span>${u.nombre} ${u.apellido || ''}</span>
+                            <div class="user-avatar-mini ${u.role.toLowerCase()}">${window.ZENGO.esc(u.nombre).charAt(0) || 'U'}</div>
+                            <span>${window.ZENGO.esc(u.nombre)} ${window.ZENGO.esc(u.apellido) || ''}</span>
                         </div>
                     </td>
-                    <td><code>${u.email}</code></td>
+                    <td><code>${window.ZENGO.esc(u.email)}</code></td>
                     <td><span class="role-badge ${u.role.toLowerCase()}">${u.role}</span></td>
                     <td><span class="status-badge ${u.activo !== false ? 'active' : 'inactive'}">${u.activo !== false ? 'Activo' : 'Inactivo'}</span></td>
                     <td>
@@ -447,12 +428,17 @@ const AdminView = {
         const userData = { nombre, apellido, email, role };
         if (password) userData.password = password;
 
+        let resultado;
         if (id) {
-            await window.AdminController.actualizarUsuario(parseInt(id), userData);
+            resultado = await window.AdminController.actualizarUsuario(parseInt(id), userData);
         } else {
             userData.password = password || '123';
-            await window.AdminController.crearUsuario(userData);
+            resultado = await window.AdminController.crearUsuario(userData);
         }
+
+        // Si falló (ej. email duplicado), no cerrar el modal: el toast de
+        // error ya se mostró, y así el Admin no pierde lo que escribió.
+        if (!resultado) return;
 
         this.closeModal();
         this.loadUsuarios();
@@ -483,11 +469,18 @@ const AdminView = {
     },
 
     closeModal() { document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none'); },
-    filterLogs(q) { document.querySelectorAll('.log-row').forEach(r => r.style.display = r.innerText.toLowerCase().includes(q.toLowerCase()) ? '' : 'none'); },
     async refreshData() {
         window.ZENGO?.toast('Actualizando...', 'info');
         await this.loadDashboardData();
+        this.resetConsulta();
         window.ZENGO?.toast('Actualizado', 'success');
+    },
+
+    resetConsulta() {
+        const input = document.getElementById('admin-consulta-input');
+        if (input) input.value = '';
+        const panel = document.getElementById('admin-consulta-resultado');
+        if (panel) panel.innerHTML = '<div class="empty-state"><i class="fas fa-search"></i><p>Busca un producto por descripcion, UPC o SKU</p></div>';
     },
 
     // ═══ MODO CONSULTA ═══
@@ -506,9 +499,9 @@ const AdminView = {
             return;
         }
         panel.innerHTML = `<div class="consulta-lista">${resultados.map(p =>
-            `<div class="consulta-lista-item" onclick="AdminView.verDetalleConsulta('${p.upc}')">
-                <span class="consulta-lista-upc">${p.upc || '—'}</span>
-                <span class="consulta-lista-desc">${p.descripcion || '—'}</span>
+            `<div class="consulta-lista-item" onclick="AdminView.verDetalleConsulta('${window.ZENGO.escJs(p.upc)}')">
+                <span class="consulta-lista-upc">${window.ZENGO.esc(p.upc) || '—'}</span>
+                <span class="consulta-lista-desc">${window.ZENGO.esc(p.descripcion) || '—'}</span>
                 <span class="consulta-lista-meta">₡${(p.precio || 0).toLocaleString()} · Existencia: ${p.existencia || 0}</span>
             </div>`).join('')}</div>`;
     },
@@ -685,7 +678,7 @@ const AdminView = {
                         ${todos.map((a, i) => `
                             <tr>
                                 <td><strong>${medals[i] || (i + 1)}</strong></td>
-                                <td>${a.auxiliar_nombre || '—'}</td>
+                                <td>${window.ZENGO.esc(a.auxiliar_nombre) || '—'}</td>
                                 <td>${a.total_ciclicos || 0}</td>
                                 <td><span style="color:${scoreColor(a.promedio_pa || 0)};font-weight:700;">${a.promedio_pa || 0}%</span></td>
                                 <td><span style="color:${scoreColor(a.promedio_pn || 0)};font-weight:700;">${a.promedio_pn || 0}%</span></td>
@@ -712,22 +705,35 @@ const AdminView = {
         const txtColor = isLight ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.35)';
         const gridColor = isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.04)';
 
+        // Clave de día en calendario LOCAL (no UTC). Costa Rica es UTC-6:
+        // un cíclico finalizado a las 8pm hora local ya cruzó a "mañana"
+        // en UTC. Comparar con .toISOString().slice(0,10) (que convierte a
+        // UTC) hacía que cíclicos de la tarde/noche cayeran en el día
+        // equivocado del gráfico, o fuera de la ventana de 7 días —
+        // dependía de a qué hora el Admin cargara el dashboard.
+        const localDateKey = (date) => {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const d = String(date.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        };
+
         // Construir últimos 7 días
         const days = Array.from({ length: 7 }, (_, i) => {
             const d = new Date();
             d.setDate(d.getDate() - (6 - i));
             return {
                 label: d.toLocaleDateString('es-CR', { weekday: 'short' }).toUpperCase().slice(0, 3),
-                date: d.toISOString().slice(0, 10),
+                date: localDateKey(d),
                 count: 0
             };
         });
 
         // Contar productos contados por día de finalización de tarea
         tareas.forEach(t => {
-            const fechaRef = (t.fecha_finalizacion || t.fecha_aprobacion || '').slice(0, 10);
-            if (!fechaRef) return;
-            const day = days.find(d => d.date === fechaRef);
+            const fechaObj = new Date(t.fecha_finalizacion || t.fecha_aprobacion || '');
+            if (isNaN(fechaObj.getTime())) return;
+            const day = days.find(d => d.date === localDateKey(fechaObj));
             if (day) {
                 (t.productos || []).forEach(p => {
                     if (p.conteos && p.conteos.length > 0) day.count++;
@@ -939,6 +945,25 @@ const AdminView = {
         await this.loadDashboardData();
     },
 
+    async forzarSync() {
+        window.ZENGO?.toast('Sincronizando...', 'info');
+        const result = await window.SyncManager.syncPendientes();
+
+        if (result?.error) {
+            window.ZENGO?.toast('Error al sincronizar: ' + result.error, 'error');
+        } else if (result?.skipped === 'offline') {
+            window.ZENGO?.toast('Sin conexión, no se puede sincronizar', 'warning');
+        } else if (result?.skipped) {
+            window.ZENGO?.toast('Sincronización ya en curso', 'info');
+        } else if (!result?.total) {
+            window.ZENGO?.toast('No hay elementos pendientes por sincronizar', 'success');
+        } else if (result.failed > 0) {
+            window.ZENGO?.toast(`Sync parcial: ${result.synced} exitosos, ${result.failed} fallidos`, 'warning');
+        } else {
+            window.ZENGO?.toast(`Sync completado: ${result.synced} elementos`, 'success');
+        }
+    },
+
     async cerrarCicloDiario() {
         const ok = await window.ZENGO?.confirm(
             'Esto eliminará productos, tareas, hallazgos y conteos tanto de Supabase como de la base local. Úsalo solo al cierre del día. ¿Deseas continuar?',
@@ -1002,8 +1027,8 @@ const AdminView = {
             const contados = prods.filter(p => p.conteos?.length > 0).length;
             return `<tr>
                             <td><strong>${t.categoria || '—'}</strong></td>
-                            <td>${t.auxiliar_nombre || '—'}</td>
-                            <td>${t.aprobado_por || '—'}</td>
+                            <td>${window.ZENGO.esc(t.auxiliar_nombre) || '—'}</td>
+                            <td>${window.ZENGO.esc(t.aprobado_por) || '—'}</td>
                             <td>${contados} / ${prods.length}</td>
                             <td class="mono">${t.fecha_aprobacion ? new Date(t.fecha_aprobacion).toLocaleDateString('es-CR') : '—'}</td>
                             <td>
@@ -1076,6 +1101,52 @@ const AdminView = {
         await this.loadCiclicosConfirmados();
     },
 
+    // Anula un cíclico DESPUÉS de que el Jefe ya lo aprobó (ej. el Admin
+    // detecta que el conteo está mal al revisarlo). A diferencia de
+    // "Devolver al Jefe" (que espera una corrección del mismo auxiliar y
+    // mantiene la categoría bloqueada mientras tanto), esto descarta el
+    // cíclico entero pasándolo a 'cancelado' — estado que ya está excluido
+    // de los que bloquean auxiliar y categoría, así que ambos quedan
+    // libres de inmediato para una asignación nueva.
+    async anularCiclicoPorMalConteo() {
+        if (!this._ciclicoDetalle) return;
+        const ok = await window.ZENGO?.confirm(
+            '¿Anular este cíclico por mal conteo?\n\nSe descarta todo lo contado. La categoría queda disponible para asignarla de nuevo, a este auxiliar o a otro.',
+            'Anular cíclico'
+        );
+        if (!ok) return;
+
+        const session = JSON.parse(localStorage.getItem('zengo_session') || '{}');
+        const tarea = this._ciclicoDetalle;
+        const estadoAnterior = tarea.estado;
+
+        try {
+            if (navigator.onLine && window.supabaseClient) {
+                await window.supabaseClient.from('tareas').update({ estado: 'cancelado' }).eq('id', tarea.id);
+            }
+        } catch (e) { console.error('Error anulando cíclico:', e); }
+        await window.db.tareas.update(tarea.id, { estado: 'cancelado' });
+
+        try {
+            await window.LogController?.registrar({
+                tabla: 'tareas',
+                accion: 'TAREA_CANCELADA',
+                registro_id: tarea.id,
+                usuario_id: session.id || null,
+                usuario_nombre: session.name || 'Admin',
+                datos_nuevos: {
+                    categoria: tarea.categoria || '—',
+                    auxiliar_nombre: tarea.auxiliar_nombre || '—',
+                    estado_anterior: estadoAnterior || '—'
+                }
+            });
+        } catch (e) { console.warn('Error log anulación:', e); }
+
+        window.ZENGO?.toast('Cíclico anulado — la categoría vuelve a estar disponible', 'warning', 6000);
+        this.cerrarCiclicoAdmin();
+        await this.loadCiclicosConfirmados();
+    },
+
     renderTablaAdmin(productos) {
         if (!productos.length) return '<tr><td colspan="11" class="text-center">Sin productos</td></tr>';
         return productos.map((p, i) => {
@@ -1083,16 +1154,16 @@ const AdminView = {
             const diferencia = total - (p.existencia || 0);
             const diffClass = diferencia < 0 ? 'text-error' : diferencia > 0 ? 'text-success' : '';
             const ubicaciones = p.conteos?.length
-                ? [...new Set(p.conteos.map(c => c.ubicacion).filter(Boolean))].join(', ')
+                ? [...new Set(p.conteos.map(c => c.ubicacion).filter(Boolean))].map(u => window.ZENGO.esc(u)).join(', ')
                 : '—';
             const hallazgo = p.hallazgo_estado
                 ? `<span class="status-badge ${p.hallazgo_estado === 'aprobado' ? 'active' : 'inactive'}">${p.hallazgo_estado}</span>`
                 : '—';
             return `<tr>
                 <td>${i + 1}</td>
-                <td class="mono" style="font-size:11px">${p.upc || '—'}</td>
-                <td>${p.sku || '—'}</td>
-                <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.descripcion || ''}">${p.descripcion || '—'}</td>
+                <td class="mono" style="font-size:11px">${window.ZENGO.esc(p.upc) || '—'}</td>
+                <td>${window.ZENGO.esc(p.sku) || '—'}</td>
+                <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${window.ZENGO.esc(p.descripcion)}">${window.ZENGO.esc(p.descripcion) || '—'}</td>
                 <td>${p.categoria || '—'}</td>
                 <td>₡${(p.precio || 0).toLocaleString()}</td>
                 <td>${p.existencia || 0}</td>
@@ -1162,28 +1233,16 @@ const AdminView = {
                         <td class="mono" style="font-size:11px">${new Date(log.timestamp).toLocaleString('es-CR')}</td>
                         <td>
                             <div style="display:flex;align-items:center;gap:8px;">
-                                <div class="user-avatar-mini" style="width:24px;height:24px;font-size:10px;background:rgba(255,255,255,0.02);">${(log.usuario_nombre || 'S').charAt(0)}</div>
-                                <span>${log.usuario_nombre || 'Sistema'}</span>
+                                <div class="user-avatar-mini" style="width:24px;height:24px;font-size:10px;background:rgba(255,255,255,0.02);">${window.ZENGO.esc(log.usuario_nombre).charAt(0) || 'S'}</div>
+                                <span>${window.ZENGO.esc(log.usuario_nombre) || 'Sistema'}</span>
                             </div>
                         </td>
-                        <td style="font-size:13px;color:#e2e6eb;">${log.mensaje || '-'}</td>
+                        <td style="font-size:13px;color:#e2e6eb;">${window.ZENGO.esc(log.mensaje) || '-'}</td>
                     </tr>
                 `).join('')}
             </tbody>
         </table>
     `;
-    },
-
-    formatAuditDetail(log) {
-        const prev = log.datos_anteriores
-            ? `<div class="audit-json-block"><strong>Antes</strong><pre>${JSON.stringify(log.datos_anteriores, null, 2)}</pre></div>`
-            : '';
-
-        const next = log.datos_nuevos
-            ? `<div class="audit-json-block"><strong>Después</strong><pre>${JSON.stringify(log.datos_nuevos, null, 2)}</pre></div>`
-            : '';
-
-        return `${prev}${next}` || '-';
     },
 
     // ═══════════════════════════════════════════════════════════

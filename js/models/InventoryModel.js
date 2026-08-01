@@ -69,10 +69,6 @@ const InventoryModel = {
         });
     },
 
-    async processExcel(file) {
-        return this.processFile(file);
-    },
-
     // ═══════════════════════════════════════════════════════════
     // MAPEAR COLUMNAS DEL EXCEL
     // ═══════════════════════════════════════════════════════════
@@ -106,7 +102,11 @@ const InventoryModel = {
             upc: String(row[columnMap.upc] || '').trim(),
             sku: String(row[columnMap.sku] || '').trim(),
             descripcion: String(row[columnMap.descripcion] || '').trim(),
-            existencia: parseInt(row[columnMap.existencia]) || 0,
+            // parseInt("1,500") devuelve 1, no 1500 — se detiene en la coma.
+            // Se limpia igual que precio (quita todo lo que no sea dígito,
+            // punto o signo) antes de convertir, para no truncar existencias
+            // con separador de miles.
+            existencia: parseInt(String(row[columnMap.existencia] || '0').replace(/[^0-9.-]/g, '')) || 0,
             precio: parseFloat(String(row[columnMap.precio] || '0').replace(/[^0-9.-]/g, '')) || 0,
             estatus: String(row[columnMap.estatus] || '').trim(),
             tipo: String(row[columnMap.tipo] || '').trim()
@@ -118,11 +118,26 @@ const InventoryModel = {
     // ═══════════════════════════════════════════════════════════
     processItems(data) {
         const validItems = data.filter(item => item.upc && item.descripcion);
-        
+
+        // La tabla `productos` tiene UNIQUE(upc) en Supabase. Un Excel de
+        // NetSuite con UPCs repetidos (frecuente: multi-bodega, correcciones
+        // a mano, etc.) hacía fallar el INSERT del lote completo donde
+        // aparecía el duplicado, dejando el catálogo en Supabase truncado a
+        // la mitad sin que el Admin se enterara — Dexie sí los guardaba
+        // todos porque su índice en `upc` no es único. Se deduplica aquí,
+        // antes de guardar, para que ambos lados queden consistentes.
+        const vistos = new Set();
+        const duplicados = [];
+        const itemsUnicos = validItems.filter(item => {
+            if (vistos.has(item.upc)) { duplicados.push(item.upc); return false; }
+            vistos.add(item.upc);
+            return true;
+        });
+
         this.categories.clear();
         let totalValue = 0;
 
-        const processedItems = validItems.map((item, index) => {
+        const processedItems = itemsUnicos.map((item, index) => {
             // CATEGORIA = Primera palabra de DESCRIPCION
             const categoria = this.extraerCategoria(item.descripcion);
             
@@ -151,11 +166,16 @@ const InventoryModel = {
         this.stats = {
             total: processedItems.length,
             totalValue: totalValue,
-            categories: this.categories.size
+            categories: this.categories.size,
+            duplicadosDescartados: duplicados.length,
+            duplicadosUpc: duplicados
         };
 
         console.log('✓ Productos procesados:', this.stats.total);
         console.log('✓ Categorías:', this.stats.categories);
+        if (duplicados.length) {
+            console.warn(`⚠ ${duplicados.length} fila(s) con UPC duplicado descartadas:`, duplicados);
+        }
 
         return processedItems;
     },
@@ -262,68 +282,6 @@ const InventoryModel = {
     // ═══════════════════════════════════════════════════════════
     // CONSULTAS
     // ═══════════════════════════════════════════════════════════
-    async getProductos() {
-        try {
-            if (!window.db) return [];
-            return await window.db.productos.toArray();
-        } catch (err) {
-            return [];
-        }
-    },
-
-    async getProductoByUpc(upc) {
-        try {
-            if (!window.db) return null;
-            return await window.db.productos.where('upc').equals(upc).first();
-        } catch (err) {
-            return null;
-        }
-    },
-
-    async buscarProducto(termino) {
-        try {
-            if (!window.db) return [];
-            const productos = await window.db.productos.toArray();
-            const t = termino.toUpperCase();
-            return productos.filter(p => 
-                p.upc.includes(t) || 
-                p.sku.toUpperCase().includes(t) || 
-                p.descripcion.toUpperCase().includes(t)
-            );
-        } catch (err) {
-            return [];
-        }
-    },
-
-    async getCategorias() {
-        try {
-            if (!window.db) return [];
-            
-            const productos = await window.db.productos.toArray();
-            if (productos.length === 0) return [];
-
-            const cats = new Map();
-            
-            productos.forEach(p => {
-                const cat = p.categoria || 'GENERAL';
-                if (!cats.has(cat)) {
-                    cats.set(cat, { 
-                        nombre: cat, 
-                        productos: [], 
-                        existencia: 0
-                    });
-                }
-                cats.get(cat).productos.push(p);
-                cats.get(cat).existencia += p.existencia || 0;
-            });
-
-            return Array.from(cats.values()).sort((a, b) => b.productos.length - a.productos.length);
-        } catch (err) {
-            console.error('Error getCategorias:', err);
-            return [];
-        }
-    },
-
     async getProductosPorCategoria(categoria) {
         try {
             if (!window.db) return [];

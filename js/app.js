@@ -35,6 +35,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Iniciar Realtime + monitor offline
     window.RealtimeManager.init();
+
+    // Avisar (sin sobrescribir nada) cuando llegan cambios de otro usuario
+    setupRealtimeNotifications();
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -113,9 +116,28 @@ function setupConnectionMonitor() {
     
     window.addEventListener('online', updateStatus);
     window.addEventListener('offline', updateStatus);
-    
+
     // Estado inicial
     updateStatus();
+}
+
+// RealtimeManager suscribe canales de Supabase y despacha eventos
+// 'zengo:tarea-cambio' / 'zengo:hallazgo-cambio' en cuanto otro usuario
+// cambia algo — pero nadie los escuchaba, así que nunca llegaban a la
+// pantalla. En vez de auto-refrescar en silencio (riesgoso: podría
+// sobrescribir una tabla de revisión o un conteo que el usuario está
+// editando ahora mismo), solo avisamos con un toast para que decida
+// cuándo refrescar con el botón que ya existe en cada vista.
+function setupRealtimeNotifications() {
+    let avisoActivo = false;
+    const avisarCambiosDisponibles = () => {
+        if (avisoActivo) return; // no duplicar el aviso si llegan varios eventos seguidos
+        avisoActivo = true;
+        window.ZENGO?.toast('Hay cambios nuevos de otro usuario — pulsa refrescar para verlos', 'info', 6000);
+        setTimeout(() => { avisoActivo = false; }, 15000);
+    };
+    window.addEventListener('zengo:tarea-cambio', avisarCambiosDisponibles);
+    window.addEventListener('zengo:hallazgo-cambio', avisarCambiosDisponibles);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -124,7 +146,40 @@ function setupConnectionMonitor() {
 
 window.ZENGO = {
     version: '1.7.0',
-    
+
+    // Escapa texto antes de insertarlo en HTML armado con template
+    // literals (todo el sistema renderiza así, sin un framework de por
+    // medio). Usar SIEMPRE que se interpole texto que un usuario escribió
+    // libremente (motivo de un prompt(), descripción de un hallazgo,
+    // nombre de usuario, etc.) — sin esto, alguien puede guardar algo
+    // como <img src=x onerror="..."> y que se ejecute en el navegador de
+    // OTRO usuario que simplemente vea esa pantalla.
+    esc(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    },
+
+    // Para texto que se interpola DENTRO de un onclick="Algo('${valor}')"
+    // inline — un caso distinto a esc(): el HTML se decodifica ANTES de
+    // que el navegador interprete el atributo como JavaScript, así que
+    // &#39; no evita que un usuario "rompa" el string de JS con una
+    // comilla. Aquí se escapa para JS (comilla simple) y para el
+    // atributo HTML que lo contiene (comilla doble) al mismo tiempo.
+    escJs(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/\\/g, '\\\\')
+            .replace(/'/g, "\\'")
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    },
+
     // Mostrar notificación toast
     toast(message, type = 'info', duration = 3000) {
         const toast = document.createElement('div');

@@ -27,7 +27,10 @@ const AdminController = {
             if (sync.supabaseOk && sync.dexieOk) {
                 window.ZENGO?.toast('Base de datos cargada correctamente y sincronizada', 'success', 5000);
             } else if (sync.dexieOk && !sync.supabaseOk) {
-                window.ZENGO?.toast('Guardado local OK. Pendiente sincronizar con Supabase', 'warning', 5000);
+                // No hay reintento automático para esta operación (no pasa
+                // por cola_sync) — si falla, hay que corregir el archivo y
+                // volver a importar, no basta con esperar.
+                window.ZENGO?.toast('Guardado local, pero falló la sincronización con Supabase — corrige el archivo y vuelve a importar', 'error', 7000);
             } else {
                 window.ZENGO?.toast('Error al guardar los productos', 'error');
             }
@@ -134,6 +137,15 @@ const AdminController = {
                     </div>
                 </header>
 
+                ${stats.duplicadosDescartados > 0 ? `
+                <div style="background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:12px;padding:14px 18px;margin-bottom:24px;display:flex;align-items:flex-start;gap:12px;">
+                    <i class="fas fa-triangle-exclamation" style="color:#f59e0b;font-size:16px;margin-top:2px;"></i>
+                    <div>
+                        <p style="color:#f59e0b;font-weight:700;font-size:13px;margin:0 0 3px;">${stats.duplicadosDescartados} fila(s) con UPC duplicado descartadas</p>
+                        <p style="color:#a8abb0;font-size:12px;margin:0;">Solo se guardó la primera aparición de cada UPC repetido. Revisa el archivo de origen si esto no era esperado. UPCs: ${(stats.duplicadosUpc || []).slice(0, 10).map(u => window.ZENGO.esc(u)).join(', ')}${stats.duplicadosUpc.length > 10 ? '…' : ''}</p>
+                    </div>
+                </div>` : ''}
+
                 <!-- KPI Bento Grid -->
                 <section style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:28px;">
                     <div style="background:#171a1d;padding:22px 24px;border-radius:14px;">
@@ -205,8 +217,6 @@ const AdminController = {
 
         document.body.appendChild(modal);
     },
-
-    injectModalStyles() { /* estilos ahora son inline en showImportSummary */ },
 
     verDashboard() {
         window.AdminView?.showSection?.('dashboard');
@@ -284,10 +294,26 @@ const AdminController = {
 
     async eliminarUsuario(userId) {
         try {
-            const confirmado = await window.ZENGO?.confirm(
-                '¿Estás seguro de desactivar este usuario?',
-                'Confirmar desactivación'
-            );
+            // Antes esto desactivaba sin avisar si el usuario tenía una
+            // tarea en curso — la tarea quedaba huérfana (nadie la
+            // completa, y no aparece marcada como "de alguien inactivo"
+            // en ningún reporte).
+            const ESTADOS_ACTIVOS = ['pendiente', 'en_progreso', 'finalizado_auxiliar', 'devuelto_admin', 'devuelto_jefe'];
+            let tareaActiva = null;
+            try {
+                if (navigator.onLine && window.supabaseClient) {
+                    const { data } = await window.supabaseClient
+                        .from('tareas').select('id, categoria, estado')
+                        .eq('auxiliar_id', userId);
+                    tareaActiva = (data || []).find(t => ESTADOS_ACTIVOS.includes(t.estado));
+                }
+            } catch (e) { console.warn('No se pudo verificar tareas activas del usuario:', e); }
+
+            const mensaje = tareaActiva
+                ? `Este usuario tiene una tarea activa en curso ("${tareaActiva.categoria}"). Si lo desactivas, esa tarea queda sin nadie que la complete. ¿Desactivar de todas formas?`
+                : '¿Estás seguro de desactivar este usuario?';
+
+            const confirmado = await window.ZENGO?.confirm(mensaje, 'Confirmar desactivación');
 
             if (!confirmado) return false;
 
@@ -359,10 +385,6 @@ const AdminController = {
             console.error('Error exportando cíclico:', err);
             window.ZENGO?.toast('Error al exportar', 'error');
         }
-    },
-
-    async obtenerLogs() {
-        return await window.LogController.obtenerTodos({ limite: 200 });
     },
 
     async cerrarCicloDiario() {

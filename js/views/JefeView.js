@@ -121,7 +121,10 @@ const JefeView = {
                         <th class="col-ubicacion">UBICACION</th><th class="col-total">TOTAL</th>
                         <th class="col-diferencia">DIFERENCIA</th><th class="col-acciones">+</th>
                     </tr></thead><tbody id="revision-tbody"></tbody></table></div></section>
-                    <div class="revision-footer"><button class="btn-entregar" onclick="JefeView.entregarAAdmin()"><i class="fas fa-paper-plane"></i> Entregar a Administracion</button></div>
+                    <div class="revision-footer">
+                        <button class="btn-danger" onclick="JefeView.anularCiclicoPorMalConteo()"><i class="fas fa-ban"></i> Anular por mal conteo</button>
+                        <button class="btn-entregar" onclick="JefeView.entregarAAdmin()"><i class="fas fa-paper-plane"></i> Entregar a Administracion</button>
+                    </div>
                 </div>
 
                 <!-- DEVUELTOS POR ADMIN -->
@@ -227,7 +230,7 @@ const JefeView = {
 
     async syncTareaToSupabase(tarea) {
         try {
-            if (!navigator.onLine || !window.supabaseClient) return false;
+            if (!navigator.onLine || !window.supabaseClient || !tarea) return false;
             const payload = {
                 productos: tarea.productos,
                 productos_contados: tarea.productos_contados,
@@ -238,9 +241,53 @@ const JefeView = {
                 devuelto_por_jefe: tarea.devuelto_por_jefe || null,
                 fecha_devuelto_jefe: tarea.fecha_devuelto_jefe || null
             };
-            const { error } = await window.supabaseClient.from('tareas').update(payload).eq('id', tarea.id);
-            return !error;
+            // Concurrencia optimista: solo escribe si nadie más tocó esta
+            // fila desde que la leímos (misma `version`). Si 0 filas resultan
+            // afectadas, alguien más ganó la carrera o la tarea ya no existe
+            // (ver FIX_CONCURRENCIA_SQL.sql) — antes esto se sobrescribía
+            // en silencio ("el último que escribe gana").
+            const { data, error } = await window.supabaseClient.from('tareas')
+                .update(payload)
+                .eq('id', tarea.id)
+                .eq('version', tarea.version || 1)
+                .select('id, version');
+
+            if (error) return false;
+
+            if (!data || data.length === 0) {
+                await this._resolverConflictoTarea(tarea.id);
+                return false;
+            }
+
+            tarea.version = data[0].version;
+            await window.db.tareas.put(tarea);
+            return true;
         } catch (e) { return false; }
+    },
+
+    // Se llama cuando una escritura a `tareas` no afectó ninguna fila:
+    // o la tarea ya no existe (ej. Admin cerró el ciclo diario) o otro
+    // usuario la modificó primero. En ambos casos, avisamos en vez de
+    // dejar que el usuario crea que su cambio se guardó.
+    async _resolverConflictoTarea(tareaId) {
+        try {
+            const { data } = await window.supabaseClient
+                .from('tareas').select('*').eq('id', tareaId).limit(1);
+
+            if (!data || !data.length) {
+                await window.db.tareas.delete(tareaId);
+                window.ZENGO?.toast('Este cíclico ya no existe (fue cerrado o eliminado) — tu último cambio no se guardó', 'error', 8000);
+                if (this.revisionActual?.id === tareaId) this.revisionActual = null;
+                return;
+            }
+
+            await window.db.tareas.put(data[0]);
+            window.ZENGO?.toast('Otro usuario modificó este cíclico al mismo tiempo — se cargó la versión más reciente. Verifica tu último cambio', 'warning', 8000);
+            if (this.revisionActual?.id === tareaId) {
+                this.revisionActual = data[0];
+                this.renderRevision();
+            }
+        } catch (e) { console.error('Error resolviendo conflicto de tarea:', e); }
     },
 
     // ═══ SYNC PRODUCTOS ═══
@@ -284,7 +331,15 @@ const JefeView = {
     async refreshAll() {
         window.ZENGO?.toast('Actualizando...', 'info');
         await this.loadDashboardData();
+        this.resetConsulta();
         window.ZENGO?.toast('Actualizado', 'success');
+    },
+
+    resetConsulta() {
+        const input = document.getElementById('jefe-consulta-input');
+        if (input) input.value = '';
+        const panel = document.getElementById('jefe-consulta-resultado');
+        if (panel) panel.innerHTML = '<div class="empty-state"><i class="fas fa-search"></i><p>Busca un producto por descripcion, UPC o SKU</p></div>';
     },
 
     async getTareasActivas() {
@@ -342,7 +397,7 @@ const JefeView = {
         const elAux = document.getElementById('auxiliares-count'); if (elAux) elAux.textContent = auxs.length;
         const c = document.getElementById('auxiliares-disponibles');
         c.innerHTML = auxs.length
-            ? auxs.map(a => `<div class="auxiliar-item" data-id="${a.id}" onclick="JefeView.selectAuxiliar(${a.id}, '${a.nombre}')"><div class="aux-avatar">${a.nombre.charAt(0)}</div><div class="aux-info"><strong>${a.nombre} ${a.apellido || ''}</strong><small>${a.email}</small></div><i class="fas fa-chevron-right"></i></div>`).join('')
+            ? auxs.map(a => { const nombreCompleto = a.nombre + (a.apellido ? ' ' + a.apellido : ''); return `<div class="auxiliar-item" data-id="${a.id}" onclick="JefeView.selectAuxiliar(${a.id}, '${window.ZENGO.escJs(nombreCompleto)}')"><div class="aux-avatar">${window.ZENGO.esc(a.nombre).charAt(0)}</div><div class="aux-info"><strong>${window.ZENGO.esc(nombreCompleto)}</strong><small>${window.ZENGO.esc(a.email)}</small></div><i class="fas fa-chevron-right"></i></div>`; }).join('')
             : '<div class="empty-state small"><p>Sin auxiliares</p></div>';
     },
 
@@ -403,7 +458,7 @@ const JefeView = {
         if (kpiEl) kpiEl.textContent = totalHallazgos;
         const c = document.getElementById('hallazgos-list');
         c.innerHTML = pend.length
-            ? pend.map(h => `<div class="hallazgo-row"><div class="hallazgo-info"><code>${h.upc}</code><span>${h.descripcion || 'Sin desc'}</span><small>${h.tarea_cat} — <span class="pill-badge celeste">${h.hallazgo_reportado_por || 'Aux'}</span></small></div><div class="hallazgo-actions"><button class="btn-approve" onclick="JefeView.aprobarHallazgo('${h.tarea_id}',${h.idx})"><i class="fas fa-check"></i> Aprobar</button><button class="btn-reject" onclick="JefeView.rechazarHallazgo('${h.tarea_id}',${h.idx})"><i class="fas fa-times"></i> Rechazar</button></div></div>`).join('')
+            ? pend.map(h => `<div class="hallazgo-row"><div class="hallazgo-info"><code>${window.ZENGO.esc(h.upc)}</code><span>${window.ZENGO.esc(h.descripcion) || 'Sin desc'}</span><small>${h.tarea_cat} — <span class="pill-badge celeste">${window.ZENGO.esc(h.hallazgo_reportado_por) || 'Aux'}</span></small></div><div class="hallazgo-actions"><button class="btn-approve" onclick="JefeView.aprobarHallazgo('${h.tarea_id}',${h.idx})"><i class="fas fa-check"></i> Aprobar</button><button class="btn-reject" onclick="JefeView.rechazarHallazgo('${h.tarea_id}',${h.idx})"><i class="fas fa-times"></i> Rechazar</button></div></div>`).join('')
             : '<div class="empty-state"><i class="fas fa-check-circle"></i><p>Sin hallazgos pendientes</p></div>';
     },
 
@@ -416,7 +471,7 @@ const JefeView = {
             overlay.innerHTML = `
                 <div class="modal-box glass" style="max-width:400px;width:90%;padding:24px;border-radius:16px;">
                     <h3 style="margin:0 0 8px;color:#7C3AED;"><i class="fas fa-tag"></i> Precio del Hallazgo</h3>
-                    <p style="margin:0 0 16px;font-size:13px;opacity:0.8;">${descripcion || 'Producto'} · ${cantidad} ud(s)</p>
+                    <p style="margin:0 0 16px;font-size:13px;opacity:0.8;">${window.ZENGO.esc(descripcion) || 'Producto'} · ${cantidad} ud(s)</p>
                     <label style="display:block;font-size:12px;margin-bottom:6px;opacity:0.7;">Precio unitario (₡)</label>
                     <input id="hallazgo-precio-input" type="number" min="0" step="1" placeholder="Ej: 15000"
                         style="width:100%;padding:10px 14px;border-radius:8px;border:1px solid rgba(124,58,237,0.4);background:rgba(255,255,255,0.08);color:inherit;font-size:16px;box-sizing:border-box;">
@@ -428,14 +483,20 @@ const JefeView = {
             document.body.appendChild(overlay);
             const input = overlay.querySelector('#hallazgo-precio-input');
             input.focus();
-            overlay.querySelector('#hallazgo-precio-cancel').onclick = () => { overlay.remove(); resolve(null); };
-            overlay.querySelector('#hallazgo-precio-ok').onclick = () => {
-                const val = parseFloat(input.value) || 0;
+            const confirmarPrecio = () => {
+                const val = parseFloat(input.value);
+                if (isNaN(val) || val < 0) {
+                    input.style.borderColor = '#ef4444';
+                    window.ZENGO?.toast('Ingresa un precio válido (0 o más)', 'error');
+                    return;
+                }
                 overlay.remove();
                 resolve(val);
             };
+            overlay.querySelector('#hallazgo-precio-cancel').onclick = () => { overlay.remove(); resolve(null); };
+            overlay.querySelector('#hallazgo-precio-ok').onclick = confirmarPrecio;
             input.addEventListener('keydown', e => {
-                if (e.key === 'Enter') { const val = parseFloat(input.value) || 0; overlay.remove(); resolve(val); }
+                if (e.key === 'Enter') confirmarPrecio();
                 if (e.key === 'Escape') { overlay.remove(); resolve(null); }
             });
         });
@@ -547,7 +608,7 @@ const JefeView = {
         const fin = (await window.db.tareas.toArray()).filter(t => t.estado === 'finalizado_auxiliar');
         const c = document.getElementById('ciclicos-revisar');
         c.innerHTML = fin.length
-            ? fin.map(t => `<div class="ciclico-row"><div class="ciclico-info"><strong>${t.categoria}</strong><small>${t.productos_total} prod - ${t.auxiliar_nombre}</small></div><button class="btn-primary" onclick="JefeView.abrirRevisionCiclico('${t.id}')"><i class="fas fa-eye"></i> Revisar</button></div>`).join('')
+            ? fin.map(t => `<div class="ciclico-row"><div class="ciclico-info"><strong>${t.categoria}</strong><small>${t.productos_total} prod - ${window.ZENGO.esc(t.auxiliar_nombre)}</small></div><button class="btn-primary" onclick="JefeView.abrirRevisionCiclico('${t.id}')"><i class="fas fa-eye"></i> Revisar</button></div>`).join('')
             : '<div class="empty-state"><p>Sin ciclicos pendientes</p></div>';
     },
 
@@ -604,6 +665,7 @@ const JefeView = {
             productos_total: productos.length,
             productos_contados: 0,
             estado: 'pendiente',
+            version: 1,
             fecha_asignacion: new Date().toISOString(),
             productos: productos.map(p => ({
                 upc: p.upc, sku: p.sku, descripcion: p.descripcion,
@@ -613,13 +675,47 @@ const JefeView = {
             }))
         };
         let ok = false;
+        let conflicto = false;
         try {
             if (navigator.onLine && window.supabaseClient) {
-                const { error } = await window.supabaseClient.from('tareas').insert(tarea);
-                ok = !error;
+                // Revalidación en vivo justo antes de insertar: el chequeo de
+                // "tarea activa" de arriba solo mira la copia local (Dexie),
+                // que puede estar desactualizada si otro Jefe asignó algo
+                // en otra máquina hace un momento. Esto achica muchísimo la
+                // ventana de carrera; el índice único de FIX_CONCURRENCIA_SQL.sql
+                // es la garantía final contra la carrera restante.
+                const { data: remotas } = await window.supabaseClient
+                    .from('tareas').select('id, categoria, estado')
+                    .eq('auxiliar_id', auxiliarId);
+                const activaRemota = (remotas || []).find(t => !ESTADOS_TERMINALES.includes(t.estado));
+
+                if (activaRemota) {
+                    conflicto = true;
+                } else {
+                    const { error } = await window.supabaseClient.from('tareas').insert(tarea);
+                    if (error) {
+                        conflicto = error.code === '23505'; // unique_violation del índice de FIX_CONCURRENCIA_SQL.sql
+                        if (!conflicto) throw error;
+                    } else {
+                        ok = true;
+                    }
+                }
             }
-        } catch (e) { }
-        await window.db.tareas.put(tarea);
+        } catch (e) { console.error('Error asignando tarea:', e); }
+
+        if (conflicto) {
+            window.ZENGO?.toast(`${auxiliarNombre} ya tiene una tarea activa asignada por otro Jefe — no se creó una nueva`, 'error', 6000);
+            this.limpiarAsignacion();
+            await this.loadDashboardData();
+            return;
+        }
+
+        // Solo dejar constancia local si el insert remoto fue exitoso, o si
+        // estamos genuinamente offline (mejor esfuerzo: sin conexión no hay
+        // forma de validar contra el servidor antes de guardar).
+        if (ok || !navigator.onLine) {
+            await window.db.tareas.put(tarea);
+        }
 
         try {
             const s = JSON.parse(localStorage.getItem('zengo_session') || '{}');
@@ -713,19 +809,19 @@ const JefeView = {
             let badges = '';
             if (esH) {
                 badges += '<span class="pill-badge amarillo">HALLAZGO</span>';
-                if (p.hallazgo_reportado_por) badges += `<span class="pill-badge celeste">${p.hallazgo_reportado_por}</span>`;
-                if (p.hallazgo_aprobado_por) badges += `<span class="pill-badge purpura">✓ ${p.hallazgo_aprobado_por}</span>`;
+                if (p.hallazgo_reportado_por) badges += `<span class="pill-badge celeste">${window.ZENGO.esc(p.hallazgo_reportado_por)}</span>`;
+                if (p.hallazgo_aprobado_por) badges += `<span class="pill-badge purpura">✓ ${window.ZENGO.esc(p.hallazgo_aprobado_por)}</span>`;
             }
             if (p.modificaciones && p.modificaciones.length) {
                 const nombres = [...new Set(p.modificaciones.map(m => m.nombre))];
-                nombres.forEach(n => { badges += `<span class="pill-badge purpura">${n}</span>`; });
+                nombres.forEach(n => { badges += `<span class="pill-badge purpura">${window.ZENGO.esc(n)}</span>`; });
             }
 
             let cantH = '<span class="sin-conteo">—</span>';
             if (comp) cantH = p.conteos.map((c, ci) => `<div class="conteo-inline"><span class="conteo-cant">${c.cantidad}</span><button class="btn-edit-mini" onclick="JefeView.editarConteoRevision(${realIdx},${ci})"><i class="fas fa-pen"></i></button><button class="btn-del-mini" onclick="JefeView.eliminarConteoRevision(${realIdx},${ci})"><i class="fas fa-times"></i></button></div>`).join('');
 
             let ubicH = '<span class="sin-conteo">—</span>';
-            if (comp) ubicH = p.conteos.map(c => `<div class="ubic-inline">${c.ubicacion}</div>`).join('');
+            if (comp) ubicH = p.conteos.map(c => `<div class="ubic-inline">${window.ZENGO.esc(c.ubicacion)}</div>`).join('');
 
             let dc = '';
             if (comp) { if (dif < 0) dc = 'diff-falta'; else if (dif > 0) dc = 'diff-sobra'; else dc = 'diff-cero'; }
@@ -733,9 +829,9 @@ const JefeView = {
 
             return `<tr class="${rc}" data-idx="${realIdx}">
                 <td class="col-num">${displayIdx + 1}</td>
-                <td class="col-upc"><code>${p.upc || '—'}</code></td>
-                <td class="col-sku">${p.sku || '—'}</td>
-                <td class="col-desc">${p.descripcion || '—'} ${badges}</td>
+                <td class="col-upc"><code>${window.ZENGO.esc(p.upc) || '—'}</code></td>
+                <td class="col-sku">${window.ZENGO.esc(p.sku) || '—'}</td>
+                <td class="col-desc">${window.ZENGO.esc(p.descripcion) || '—'} ${badges}</td>
                 <td class="col-precio">${p.precio ? '₡' + p.precio.toLocaleString() : '—'}</td>
                 <td class="col-existencia">${p.existencia || 0}</td>
                 <td class="col-cantidad">${cantH}</td>
@@ -752,6 +848,11 @@ const JefeView = {
 
         const cantidad = prompt('Cantidad:');
         if (cantidad === null) return;
+        const cantidadNum = parseInt(cantidad);
+        if (isNaN(cantidadNum) || cantidadNum < 0) {
+            window.ZENGO?.toast('Cantidad inválida', 'error');
+            return;
+        }
 
         const ubicacion = prompt('Ubicación:');
         if (!ubicacion) return;
@@ -762,7 +863,7 @@ const JefeView = {
         if (!p.conteos) p.conteos = [];
 
         p.conteos.push({
-            cantidad: parseInt(cantidad) || 0,
+            cantidad: cantidadNum,
             ubicacion: ubicacion.toUpperCase(),
             timestamp: new Date().toISOString()
         });
@@ -778,13 +879,14 @@ const JefeView = {
             accion: 'conteo_agregado_revision'
         });
 
+        const tareaId = this.revisionActual.id; // capturado antes del sync: puede quedar null si hay conflicto
         await this.guardarRevision();
 
         try {
             await window.LogController?.registrar({
                 tabla: 'conteos_realizados',
                 accion: 'CONTEO_AGREGADO_REVISION',
-                registro_id: `${this.revisionActual.id}_${idx}`,
+                registro_id: `${tareaId}_${idx}`,
                 usuario_id: s.id || null,
                 usuario_nombre: s.name || 'Jefe',
                 datos_anteriores: {
@@ -802,7 +904,7 @@ const JefeView = {
             console.warn('Error log agregar conteo revision:', err);
         }
 
-        this.renderRevisionProductos();
+        this.renderRevision();
         window.ZENGO?.toast('Conteo agregado en revisión ✓', 'success');
     },
 
@@ -818,8 +920,13 @@ const JefeView = {
         );
 
         if (nuevo === null) return;
+        const nuevoNum = parseInt(nuevo);
+        if (isNaN(nuevoNum) || nuevoNum < 0) {
+            window.ZENGO?.toast('Cantidad inválida', 'error');
+            return;
+        }
 
-        p.conteos[ci].cantidad = parseInt(nuevo) || 0;
+        p.conteos[ci].cantidad = nuevoNum;
 
         p.total = p.conteos.reduce((suma, c) => suma + c.cantidad, 0);
         p.diferencia = p.total - (p.existencia || 0);
@@ -832,13 +939,14 @@ const JefeView = {
             accion: 'conteo_editado_revision'
         });
 
+        const tareaId = this.revisionActual.id; // capturado antes del sync: puede quedar null si hay conflicto
         await this.guardarRevision();
 
         try {
             await window.LogController?.registrar({
                 tabla: 'conteos_realizados',
                 accion: 'CONTEO_EDITADO_REVISION',
-                registro_id: `${this.revisionActual.id}_${pi}_${ci}`,
+                registro_id: `${tareaId}_${pi}_${ci}`,
                 usuario_id: s.id || null,
                 usuario_nombre: s.name || 'Jefe',
                 datos_anteriores: {
@@ -856,7 +964,7 @@ const JefeView = {
             console.warn('Error log editar conteo revision:', err);
         }
 
-        this.renderRevisionProductos();
+        this.renderRevision();
         window.ZENGO?.toast('Conteo editado ✓', 'success');
     },
 
@@ -882,13 +990,14 @@ const JefeView = {
             accion: 'conteo_eliminado_revision'
         });
 
+        const tareaId = this.revisionActual.id; // capturado antes del sync: puede quedar null si hay conflicto
         await this.guardarRevision();
 
         try {
             await window.LogController?.registrar({
                 tabla: 'conteos_realizados',
                 accion: 'CONTEO_ELIMINADO_REVISION',
-                registro_id: `${this.revisionActual.id}_${pi}_${ci}`,
+                registro_id: `${tareaId}_${pi}_${ci}`,
                 usuario_id: s.id || null,
                 usuario_nombre: s.name || 'Jefe',
                 datos_anteriores: {
@@ -906,7 +1015,7 @@ const JefeView = {
             console.warn('Error log eliminar conteo revision:', err);
         }
 
-        this.renderRevisionProductos();
+        this.renderRevision();
         window.ZENGO?.toast('Conteo eliminado', 'success');
     },
 
@@ -939,15 +1048,18 @@ const JefeView = {
             modificaciones: [{ nombre: s.name, color: 'purpura', fecha: new Date().toISOString(), accion: 'hallazgo_jefe' }]
         });
 
-        await this.guardarRevision();
+        // Capturados antes del sync: revisionActual puede quedar null si hay conflicto
+        const tareaId = this.revisionActual.id;
+        const idxNuevo = this.revisionActual.productos.length - 1;
+        const nuevo = this.revisionActual.productos[idxNuevo];
 
-        const nuevo = this.revisionActual.productos[this.revisionActual.productos.length - 1];
+        await this.guardarRevision();
 
         try {
             await window.LogController?.registrar({
                 tabla: 'hallazgos',
                 accion: 'HALLAZGO_AGREGADO_JEFE',
-                registro_id: `${this.revisionActual.id}_${this.revisionActual.productos.length - 1}`,
+                registro_id: `${tareaId}_${idxNuevo}`,
                 usuario_id: s.id || null,
                 usuario_nombre: s.name || 'Jefe',
                 datos_nuevos: {
@@ -1008,24 +1120,59 @@ const JefeView = {
         await this.loadDashboardData();
     },
 
+    // Anula un cíclico ANTES de aprobarlo (ej. el conteo está mal y no vale
+    // la pena mandarlo a corrección — mejor descartarlo entero). A
+    // diferencia de "Devolver" (que espera que el mismo auxiliar corrija),
+    // esto pasa la tarea a 'cancelado', que ya está excluido de los
+    // estados que bloquean tanto al auxiliar como a la categoría — ambos
+    // quedan libres de inmediato para una asignación nueva.
+    async anularCiclicoPorMalConteo() {
+        if (!this.revisionActual) return;
+        const ok = await window.ZENGO?.confirm(
+            '¿Anular este cíclico por mal conteo?\n\nSe descarta todo lo contado hasta ahora. La categoría queda disponible para asignarla de nuevo, a este auxiliar o a otro.',
+            'Anular cíclico'
+        );
+        if (!ok) return;
+
+        const s = JSON.parse(localStorage.getItem('zengo_session') || '{}');
+        const tarea = this.revisionActual;
+        const estadoAnterior = tarea.estado;
+
+        try {
+            if (navigator.onLine && window.supabaseClient) {
+                await window.supabaseClient.from('tareas').update({ estado: 'cancelado' }).eq('id', tarea.id);
+            }
+        } catch (e) { console.error('Error anulando cíclico:', e); }
+        await window.db.tareas.update(tarea.id, { estado: 'cancelado' });
+
+        try {
+            await window.LogController?.registrar({
+                tabla: 'tareas',
+                accion: 'TAREA_CANCELADA',
+                registro_id: tarea.id,
+                usuario_id: s.id || null,
+                usuario_nombre: s.name || 'Jefe',
+                datos_nuevos: {
+                    categoria: tarea.categoria || '—',
+                    auxiliar_nombre: tarea.auxiliar_nombre || '—',
+                    estado_anterior: estadoAnterior || '—'
+                }
+            });
+        } catch (e) { console.warn('Error log anulación:', e); }
+
+        window.ZENGO?.toast('Cíclico anulado — la categoría vuelve a estar disponible', 'warning', 6000);
+        this.revisionActual = null;
+        this.showSection('mando');
+        await this.loadDashboardData();
+    },
+
     // ═══ RANKING — Cálculo de Precisión Absoluta y Neta ═══
     async calcularYGuardarEstadisticas(tarea) {
         try {
-            let totalExist = 0, totalDiff = 0, totalFalt = 0;
-
-            (tarea.productos || []).forEach(p => {
-                if (p.conteos && p.conteos.length > 0) {
-                    const exist = p.existencia || 0;
-                    const dif = (p.total || 0) - exist;
-                    totalExist += exist;
-                    totalDiff += Math.abs(dif);
-                    if (dif < 0) totalFalt += Math.abs(dif);
-                }
-            });
-
-            // PA: penaliza sobrantes y faltantes · PN: solo penaliza faltantes (merma)
-            const pa = totalExist > 0 ? Math.max(0, (1 - totalDiff / totalExist) * 100) : 100;
-            const pn = totalExist > 0 ? Math.max(0, (1 - totalFalt / totalExist) * 100) : 100;
+            // Delega el cálculo por-cíclico a PrecisionCalculator (misma
+            // fórmula que usa AuxiliarView para el KPI en vivo) — ver nota
+            // en AuxiliarView.calcularPrecision().
+            const { absoluta: pa, neta: pn } = window.PrecisionCalculator.calcularCiclo(tarea.productos);
 
             const auxId = tarea.auxiliar_id;
             const auxNombre = tarea.auxiliar_nombre || 'Desconocido';
@@ -1037,7 +1184,7 @@ const JefeView = {
             const sumaPN = (prev?.suma_pn || 0) + pn;
             const promPA = parseFloat((sumaPA / total).toFixed(2));
             const promPN = parseFloat((sumaPN / total).toFixed(2));
-            const score = parseFloat(((promPA + promPN) / 2).toFixed(2));
+            const score = parseFloat(window.PrecisionCalculator.calcularScore(promPA, promPN).toFixed(2));
 
             const stats = {
                 auxiliar_id: auxId,
@@ -1083,9 +1230,9 @@ const JefeView = {
         el.innerHTML = devueltas.map(t => `
             <div class="ciclico-row" style="flex-direction:column;align-items:flex-start;gap:10px;padding:16px;">
                 <div class="ciclico-info">
-                    <strong>${t.categoria} — ${t.auxiliar_nombre || '—'}</strong>
-                    <small>Rechazado por: ${t.rechazado_por || 'Admin'} · ${t.fecha_rechazo ? new Date(t.fecha_rechazo).toLocaleString('es-CR') : '—'}</small>
-                    ${t.motivo_rechazo ? `<small style="color:#ef4444"><i class="fas fa-comment-alt"></i> ${t.motivo_rechazo}</small>` : ''}
+                    <strong>${t.categoria} — ${window.ZENGO.esc(t.auxiliar_nombre) || '—'}</strong>
+                    <small>Rechazado por: ${window.ZENGO.esc(t.rechazado_por) || 'Admin'} · ${t.fecha_rechazo ? new Date(t.fecha_rechazo).toLocaleString('es-CR') : '—'}</small>
+                    ${t.motivo_rechazo ? `<small style="color:#ef4444"><i class="fas fa-comment-alt"></i> ${window.ZENGO.esc(t.motivo_rechazo)}</small>` : ''}
                 </div>
                 <button class="btn-primary" onclick="JefeView.devolverAlAuxiliar('${t.id}')">
                     <i class="fas fa-undo"></i> Devolver al Auxiliar
@@ -1174,7 +1321,7 @@ const JefeView = {
         document.getElementById(`section-${id}`).style.display = 'block';
         document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
         document.querySelector(`[data-section="${id}"]`)?.classList.add('active');
-        if (id === 'mando') { this.loadMonitorMando(); this.loadRanking(); }
+        if (id === 'mando') { this.loadMonitorMando(); this.loadRanking(); this.loadCategorias(); this.loadAuxiliares(); }
         if (id === 'consulta') this._iniciarScannerConsulta();
         if (id === 'hallazgos') this.loadHallazgos();
         if (id === 'revisar') this.loadCiclicosParaRevisar();
@@ -1199,9 +1346,9 @@ const JefeView = {
             return;
         }
         panel.innerHTML = `<div class="consulta-lista">${resultados.map(p =>
-            `<div class="consulta-lista-item" onclick="JefeView.verDetalleConsulta('${p.upc}')">
-                <span class="consulta-lista-upc">${p.upc || '—'}</span>
-                <span class="consulta-lista-desc">${p.descripcion || '—'}</span>
+            `<div class="consulta-lista-item" onclick="JefeView.verDetalleConsulta('${window.ZENGO.escJs(p.upc)}')">
+                <span class="consulta-lista-upc">${window.ZENGO.esc(p.upc) || '—'}</span>
+                <span class="consulta-lista-desc">${window.ZENGO.esc(p.descripcion) || '—'}</span>
                 <span class="consulta-lista-meta">₡${(p.precio || 0).toLocaleString()} · Existencia: ${p.existencia || 0}</span>
             </div>`).join('')}</div>`;
     },
@@ -1287,7 +1434,7 @@ const JefeView = {
                 <div class="mc-categoria"><i class="fas fa-folder"></i> ${t.categoria || '—'}</div>
                 <span class="mc-estado ${estado.cls}">${estado.label}</span>
             </div>
-            <div class="mc-aux"><i class="fas fa-user"></i> ${t.auxiliar_nombre || '—'}</div>
+            <div class="mc-aux"><i class="fas fa-user"></i> ${window.ZENGO.esc(t.auxiliar_nombre) || '—'}</div>
             <div class="mc-stats">
                 <div class="mc-stat"><span class="mc-stat-lbl">Sistema</span><span class="mc-stat-val">${total}</span></div>
                 <div class="mc-stat"><span class="mc-stat-lbl">Contados</span><span class="mc-stat-val">${contados}</span></div>
@@ -1344,7 +1491,7 @@ const JefeView = {
             const scoreColor = s.score_ranking >= 95 ? '#22c55e' : s.score_ranking >= 85 ? '#f59e0b' : '#ef4444';
             return `<tr class="${i < 3 ? 'rk-top' : ''}">
                         <td class="rk-pos">${medals[i] || (i + 1)}</td>
-                        <td class="rk-name"><div class="rk-avatar">${(s.auxiliar_nombre || 'A').charAt(0).toUpperCase()}</div>${s.auxiliar_nombre || '—'}</td>
+                        <td class="rk-name"><div class="rk-avatar">${(s.auxiliar_nombre || 'A').charAt(0).toUpperCase()}</div>${window.ZENGO.esc(s.auxiliar_nombre) || '—'}</td>
                         <td class="rk-num">${s.total_ciclicos}</td>
                         <td class="rk-num">${s.promedio_pa?.toFixed(1)}%</td>
                         <td class="rk-num">${s.promedio_pn?.toFixed(1)}%</td>

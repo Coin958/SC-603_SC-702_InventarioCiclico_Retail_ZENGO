@@ -7,7 +7,7 @@
 const AuxiliarView = {
 
     tareaActual: null,
-    productoSeleccionado: null,
+    upcSeleccionado: null,
 
     // ═══ RENDER ═══
     render(container) {
@@ -188,7 +188,13 @@ const AuxiliarView = {
                 return remota;
             }
 
-            // Local tiene más progreso → mantener local, pero aplicar decisiones del jefe
+            // Local tiene más progreso → mantener local, pero aplicar decisiones
+            // del jefe y adoptar el número de `version` remoto (ver
+            // FIX_CONCURRENCIA_SQL.sql): la fila en Supabase ya avanzó de
+            // versión por la escritura del jefe, así que si no actualizamos
+            // esto aquí, el próximo guardado del auxiliar chocaría consigo
+            // mismo (creería tener la versión vieja y sería rechazado).
+            local.version = remota.version;
             if (remotaResueltos > localResueltos) {
                 for (const rp of (remota.productos || [])) {
                     if (rp.es_hallazgo && rp.hallazgo_estado !== 'pendiente') {
@@ -202,8 +208,8 @@ const AuxiliarView = {
                         }
                     }
                 }
-                await window.db.tareas.put(local);
             }
+            await window.db.tareas.put(local);
             return local;
         } catch (e) { return null; }
     },
@@ -211,7 +217,13 @@ const AuxiliarView = {
     async syncTareaToSupabase() {
         try {
             if (!navigator.onLine || !window.supabaseClient || !this.tareaActual) return false;
-            const { error } = await window.supabaseClient.from('tareas')
+            // Concurrencia optimista: solo escribe si nadie más tocó esta
+            // fila desde que la leímos (misma `version`). Si 0 filas resultan
+            // afectadas, un Jefe la modificó primero o la tarea ya no existe
+            // (ver FIX_CONCURRENCIA_SQL.sql) — antes esto se sobrescribía
+            // en silencio ("el último que escribe gana") y el auxiliar veía
+            // "Conteo guardado ✓" aunque nada se hubiera persistido.
+            const { data, error } = await window.supabaseClient.from('tareas')
                 .update({
                     productos: this.tareaActual.productos,
                     productos_contados: this.tareaActual.productos_contados,
@@ -219,9 +231,54 @@ const AuxiliarView = {
                     cronometro_inicio: this.tareaActual.cronometro_inicio || null,
                     fecha_finalizacion: this.tareaActual.fecha_finalizacion || null
                 })
-                .eq('id', this.tareaActual.id);
-            return !error;
+                .eq('id', this.tareaActual.id)
+                .eq('version', this.tareaActual.version || 1)
+                .select('id, version');
+
+            if (error) return false;
+
+            if (!data || data.length === 0) {
+                await this._resolverConflictoTarea();
+                return false;
+            }
+
+            this.tareaActual.version = data[0].version;
+            await window.db.tareas.put(this.tareaActual);
+            return true;
         } catch (e) { return false; }
+    },
+
+    // Se llama cuando una escritura a la tarea activa no afectó ninguna
+    // fila: o la tarea ya no existe (ej. Admin cerró el ciclo diario
+    // mientras el auxiliar seguía offline) o el Jefe la modificó primero
+    // desde la pantalla de revisión. En ambos casos avisamos en vez de
+    // dejar que el auxiliar crea que su conteo se guardó.
+    async _resolverConflictoTarea() {
+        if (!this.tareaActual) return;
+        const tareaId = this.tareaActual.id;
+        try {
+            const { data } = await window.supabaseClient
+                .from('tareas').select('*').eq('id', tareaId).limit(1);
+
+            if (!data || !data.length) {
+                await window.db.tareas.delete(tareaId);
+                this.tareaActual = null;
+                const sinTarea = document.getElementById('sin-tarea');
+                const conTarea = document.getElementById('con-tarea');
+                const info = document.getElementById('tarea-info');
+                if (sinTarea) sinTarea.style.display = 'block';
+                if (conTarea) conTarea.style.display = 'none';
+                if (info) info.textContent = 'Sin tarea asignada';
+                window.ZENGO?.toast('Este cíclico ya no existe (fue cerrado por un administrador) — tu último cambio no se guardó', 'error', 8000);
+                return;
+            }
+
+            await window.db.tareas.put(data[0]);
+            this.tareaActual = data[0];
+            window.ZENGO?.toast('El Jefe modificó este cíclico mientras trabajabas — se cargó la versión más reciente. Verifica tu último cambio', 'warning', 8000);
+            this.renderProductos();
+            this.actualizarProgreso();
+        } catch (e) { console.error('Error resolviendo conflicto de tarea:', e); }
     },
 
     // ═══ SYNC PRODUCTOS ═══
@@ -245,32 +302,6 @@ const AuxiliarView = {
             console.log(`✓ Productos sincronizados: ${data.length}`);
         } catch (e) {
             console.warn('Sync productos fallido:', e);
-        }
-    },
-
-    async registrarLogConteo({ accion, productoAntes = null, productoDespues = null, productoIndex = null }) {
-        try {
-            const session = JSON.parse(localStorage.getItem('zengo_session') || '{}');
-
-            await window.LogController?.registrar({
-                tabla: 'conteos_realizados',
-                accion,
-                registro_id: `${this.tareaActual?.id || 'sin_tarea'}_${productoIndex ?? 'sin_idx'}`,
-                usuario_id: session.id || null,
-                usuario_nombre: session.name || 'Auxiliar',
-                datos_anteriores: productoAntes ? {
-                    upc: productoAntes.upc,
-                    total: productoAntes.total || 0,
-                    conteos: productoAntes.conteos || []
-                } : null,
-                datos_nuevos: productoDespues ? {
-                    upc: productoDespues.upc,
-                    total: productoDespues.total || 0,
-                    conteos: productoDespues.conteos || []
-                } : null
-            });
-        } catch (e) {
-            console.warn(`Error log ${accion}:`, e);
         }
     },
 
@@ -316,7 +347,7 @@ const AuxiliarView = {
         this.actualizarProgreso();
         this.cargarRanking();
         // Si ya tiene cronómetro iniciado, restaurar
-        if (miTarea.cronometro_inicio) this.iniciarCronometro();
+        if (miTarea.cronometro_inicio) await this.iniciarCronometro();
     },
 
     // ═══ TABLA EXCEL ═══
@@ -358,14 +389,14 @@ const AuxiliarView = {
                 if (hEstado === 'aprobado' && p.hallazgo_aprobado_por) badges += `<span class="pill-badge purpura">✓ ${p.hallazgo_aprobado_por}</span>`;
                 if (hEstado === 'rechazado' && p.hallazgo_rechazado_por) badges += `<span class="pill-badge ${p.hallazgo_rechazado_color || 'purpura'}">✗ ${p.hallazgo_rechazado_por}</span>`;
             }
-            if (p.modificaciones) p.modificaciones.forEach(m => { badges += `<span class="pill-badge ${m.color}">${m.nombre}</span>`; });
+            if (p.modificaciones) p.modificaciones.forEach(m => { badges += `<span class="pill-badge ${m.color}">${window.ZENGO.esc(m.nombre)}</span>`; });
 
             // Conteos y ubicaciones
             let cantHtml = '<span class="sin-conteo">—</span>';
             let ubicHtml = '<span class="sin-conteo">—</span>';
             if (completo) {
                 cantHtml = p.conteos.map((c, ci) => `<div class="conteo-inline"><span class="conteo-cant">${c.cantidad}</span><button class="btn-edit-mini" onclick="AuxiliarView.editarConteo(${realIndex},${ci})"><i class="fas fa-pen"></i></button><button class="btn-del-mini" onclick="AuxiliarView.eliminarConteo(${realIndex},${ci})"><i class="fas fa-times"></i></button></div>`).join('');
-                ubicHtml = p.conteos.map(c => `<div class="ubic-inline">${c.ubicacion}</div>`).join('');
+                ubicHtml = p.conteos.map(c => `<div class="ubic-inline">${window.ZENGO.esc(c.ubicacion)}</div>`).join('');
             }
 
             let diffClass = '';
@@ -386,9 +417,9 @@ const AuxiliarView = {
 
             return `<tr class="${rowClass}" data-idx="${realIndex}">
                 <td class="col-num">${i + 1}</td>
-                <td class="col-upc"><code>${p.upc || '—'}</code></td>
-                <td class="col-sku">${p.sku || '—'}</td>
-                <td class="col-desc" title="${p.descripcion || ''}">${p.descripcion || '—'} ${badges}</td>
+                <td class="col-upc"><code>${window.ZENGO.esc(p.upc) || '—'}</code></td>
+                <td class="col-sku">${window.ZENGO.esc(p.sku) || '—'}</td>
+                <td class="col-desc" title="${window.ZENGO.esc(p.descripcion)}">${window.ZENGO.esc(p.descripcion) || '—'} ${badges}</td>
                 <td class="col-precio">${p.precio ? '₡' + p.precio.toLocaleString() : '—'}</td>
                 <td class="col-existencia">${p.existencia || 0}</td>
                 <td class="col-cantidad">${cantHtml}</td>
@@ -404,8 +435,17 @@ const AuxiliarView = {
 
     // ═══ CONTEO ═══
     abrirConteo(index) {
-        this.productoSeleccionado = index;
+        // Guarda: si una sincronización de fondo cerró/borró la tarea justo
+        // antes de este clic (ver _resolverConflictoTarea), tareaActual
+        // puede ser null.
+        if (!this.tareaActual) return;
         const p = this.tareaActual.productos[index];
+        if (!p) return;
+        // Se guarda el UPC, no el índice: si el arreglo de productos cambia
+        // de tamaño u orden mientras el modal está abierto (ej. el Jefe
+        // agrega un hallazgo y llega una sincronización de fondo), un
+        // índice numérico podría terminar apuntando a otro producto.
+        this.upcSeleccionado = p.upc;
         document.getElementById('conteo-upc').textContent = p.upc || '';
         document.getElementById('conteo-desc').textContent = p.descripcion || '';
         document.getElementById('conteo-cantidad').value = '';
@@ -415,12 +455,22 @@ const AuxiliarView = {
     },
 
     async guardarConteo() {
+        if (!this.tareaActual || !this.upcSeleccionado) {
+            window.ZENGO?.toast('Este cíclico ya no está disponible — cierra este formulario', 'error');
+            this.closeModal();
+            return;
+        }
         const cantidad = parseInt(document.getElementById('conteo-cantidad').value);
         const ubicacion = document.getElementById('conteo-ubicacion').value.trim();
         if (isNaN(cantidad) || cantidad < 0) { window.ZENGO?.toast('Cantidad inválida', 'error'); return; }
         if (!ubicacion) { window.ZENGO?.toast('Ingresa ubicación', 'error'); return; }
 
-        const p = this.tareaActual.productos[this.productoSeleccionado];
+        const p = this.tareaActual.productos.find(x => x.upc === this.upcSeleccionado);
+        if (!p) {
+            window.ZENGO?.toast('Este producto ya no existe en la tarea', 'error');
+            this.closeModal();
+            return;
+        }
         if (!p.conteos) p.conteos = [];
         const ubicUpper = ubicacion.toUpperCase();
         const existente = p.conteos.findIndex(c => c.ubicacion === ubicUpper);
@@ -434,9 +484,10 @@ const AuxiliarView = {
         p.total = p.conteos.reduce((s, c) => s + c.cantidad, 0);
         p.diferencia = p.total - p.existencia;
         this.tareaActual.productos_contados = this.tareaActual.productos.filter(x => x.conteos && x.conteos.length > 0).length;
+        const tareaId = this.tareaActual.id; // capturado antes del sync: si hay conflicto, tareaActual puede quedar null
 
         // Iniciar cronómetro en primer conteo
-        if (!this.cronometroInicio) this.iniciarCronometro();
+        if (!this.cronometroInicio) await this.iniciarCronometro();
 
         await window.db.tareas.put(this.tareaActual);
         await this.syncTareaToSupabase();
@@ -447,7 +498,7 @@ const AuxiliarView = {
             await window.LogController?.registrar({
                 tabla: 'conteos_realizados',
                 accion: 'CONTEO_REGISTRADO',
-                registro_id: `${this.tareaActual.id}_${this.productoSeleccionado}`,
+                registro_id: `${tareaId}_${p.upc}`,
                 usuario_id: session.id || null,
                 usuario_nombre: session.name || 'Auxiliar',
                 datos_nuevos: {
@@ -465,7 +516,9 @@ const AuxiliarView = {
     },
 
     async editarConteo(pi, ci) {
+        if (!this.tareaActual) return;
         const p = this.tareaActual.productos[pi];
+        if (!p || !p.conteos || !p.conteos[ci]) return;
         const antes = JSON.parse(JSON.stringify(p));
 
         const nv = prompt(`Editar cantidad (${p.conteos[ci].ubicacion}):`, p.conteos[ci].cantidad);
@@ -508,8 +561,18 @@ const AuxiliarView = {
     },
 
     async eliminarConteo(pi, ci) {
+        if (!this.tareaActual || !this.tareaActual.productos[pi]?.conteos?.[ci]) return;
+
         const confirmado = await window.ZENGO?.confirm('¿Eliminar conteo?', 'Confirmar');
         if (!confirmado) return;
+
+        // Revalidar tras el confirm: es un diálogo async, y de fondo pudo
+        // haber llegado una sincronización que invalidó la tarea o el
+        // producto mientras el usuario decidía.
+        if (!this.tareaActual || !this.tareaActual.productos[pi]?.conteos?.[ci]) {
+            window.ZENGO?.toast('Este conteo ya no existe', 'error');
+            return;
+        }
 
         const session = JSON.parse(localStorage.getItem('zengo_session') || '{}');
         const p = this.tareaActual.productos[pi];
@@ -562,6 +625,11 @@ const AuxiliarView = {
     },
 
     async guardarHallazgo() {
+        if (!this.tareaActual) {
+            window.ZENGO?.toast('Este cíclico ya no está disponible — cierra este formulario', 'error');
+            this.closeModal();
+            return;
+        }
         const upc = document.getElementById('hallazgo-upc').value.trim();
         const desc = document.getElementById('hallazgo-desc').value.trim();
         const sku = document.getElementById('hallazgo-sku').value.trim();
@@ -592,6 +660,7 @@ const AuxiliarView = {
 
         const nuevo = this.tareaActual.productos[this.tareaActual.productos.length - 1];
         const idx = this.tareaActual.productos.length - 1;
+        const tareaId = this.tareaActual.id; // capturado antes del sync (ver nota en guardarConteo)
 
         await window.db.tareas.put(this.tareaActual);
         await this.syncTareaToSupabase();
@@ -600,7 +669,7 @@ const AuxiliarView = {
             await window.LogController?.registrar({
                 tabla: 'hallazgos',
                 accion: 'HALLAZGO_REPORTADO',
-                registro_id: `${this.tareaActual.id}_${idx}`,
+                registro_id: `${tareaId}_${idx}`,
                 usuario_id: session.id || null,
                 usuario_nombre: session.name || 'Auxiliar',
                 datos_nuevos: {
@@ -628,7 +697,7 @@ const AuxiliarView = {
     cronometroInterval: null,
     cronometroInicio: null,
 
-    iniciarCronometro() {
+    async iniciarCronometro() {
         if (this.cronometroInterval) return;
         if (!this.tareaActual) return;
         // Restaurar inicio guardado o marcar ahora
@@ -637,8 +706,14 @@ const AuxiliarView = {
         } else {
             this.cronometroInicio = Date.now();
             this.tareaActual.cronometro_inicio = new Date().toISOString();
-            window.db.tareas.put(this.tareaActual);
-            this.syncTareaToSupabase(); // subir cronometro_inicio a Supabase inmediatamente
+            await window.db.tareas.put(this.tareaActual);
+            // Se espera este sync (antes era "fire and forget"): si no se
+            // espera, queda corriendo en paralelo con el próximo
+            // `syncTareaToSupabase()` de guardarConteo() —ambos leyendo la
+            // misma `version` vieja— y el segundo en llegar se rechaza como
+            // si "otro usuario" hubiera modificado la tarea, cuando en
+            // realidad es el mismo dispositivo compitiendo consigo mismo.
+            await this.syncTareaToSupabase();
         }
         this.cronometroInterval = setInterval(() => this.actualizarCronometro(), 1000);
         this.actualizarCronometro();
@@ -661,23 +736,14 @@ const AuxiliarView = {
 
     calcularPrecision() {
         if (!this.tareaActual) return { absoluta: 0, neta: 0, score: 0 };
-        const prods = this.tareaActual.productos || [];
-        const contados = prods.filter(p => p.conteos && p.conteos.length > 0 && (!p.es_hallazgo || p.hallazgo_estado === 'aprobado'));
-        if (!contados.length) return { absoluta: 0, neta: 0, score: 0 };
-
-        let sumTeorico = 0, sumAbsError = 0, sumNetError = 0;
-        contados.forEach(p => {
-            const teorico = p.existencia || 0;
-            const fisico = p.total || 0;
-            sumTeorico += teorico;
-            sumAbsError += Math.abs(fisico - teorico);
-            sumNetError += (fisico - teorico);
-        });
-
-        const absoluta = sumTeorico > 0 ? Math.max(0, (1 - sumAbsError / sumTeorico) * 100) : 100;
-        const neta = sumTeorico > 0 ? Math.max(0, (1 - Math.abs(sumNetError) / sumTeorico) * 100) : 100;
-        const score = absoluta * 0.6 + neta * 0.4;
-        return { absoluta: Math.round(absoluta * 10) / 10, neta: Math.round(neta * 10) / 10, score: Math.round(score * 10) / 10 };
+        // Delega a PrecisionCalculator (js/models/PrecisionCalculator.js):
+        // antes esta fórmula vivía duplicada aquí con pesos (60/40) y hasta
+        // un criterio de "neta" distintos a los de JefeView.calcularYGuardarEstadisticas
+        // (50/50, sin neteo entre sobrantes y faltantes de productos
+        // distintos) — que es la que realmente se persiste en el ranking.
+        // Ahora ambas vistas usan la misma fórmula, así que el KPI en vivo
+        // que ve el auxiliar coincide con lo que terminará contando oficialmente.
+        return window.PrecisionCalculator.calcularCiclo(this.tareaActual.productos);
     },
 
     actualizarProgreso() {
@@ -926,6 +992,8 @@ const AuxiliarView = {
                 await this.loadDevueltosAux();
             }
 
+            this.resetConsulta();
+
             window.ZENGO?.toast('Datos actualizados ✓', 'success');
 
         } catch (e) {
@@ -949,6 +1017,13 @@ const AuxiliarView = {
     },
 
     // ═══ MODO CONSULTA ═══
+    resetConsulta() {
+        const input = document.getElementById('aux-consulta-input');
+        if (input) input.value = '';
+        const panel = document.getElementById('aux-consulta-resultado');
+        if (panel) panel.innerHTML = '<div class="empty-state"><i class="fas fa-search"></i><p>Busca un producto por descripcion, UPC o SKU</p></div>';
+    },
+
     async ejecutarConsulta() {
         const term = document.getElementById('aux-consulta-input')?.value.trim();
         if (!term) return;
@@ -964,9 +1039,9 @@ const AuxiliarView = {
             return;
         }
         panel.innerHTML = `<div class="consulta-lista">${resultados.map(p =>
-            `<div class="consulta-lista-item" onclick="AuxiliarView.verDetalleConsulta('${p.upc}')">
-                <span class="consulta-lista-upc">${p.upc || '—'}</span>
-                <span class="consulta-lista-desc">${p.descripcion || '—'}</span>
+            `<div class="consulta-lista-item" onclick="AuxiliarView.verDetalleConsulta('${window.ZENGO.escJs(p.upc)}')">
+                <span class="consulta-lista-upc">${window.ZENGO.esc(p.upc) || '—'}</span>
+                <span class="consulta-lista-desc">${window.ZENGO.esc(p.descripcion) || '—'}</span>
                 <span class="consulta-lista-meta">₡${(p.precio || 0).toLocaleString()} · Existencia: ${p.existencia || 0}</span>
             </div>`).join('')}</div>`;
     },
@@ -1017,8 +1092,8 @@ const AuxiliarView = {
             <div class="ciclico-row" style="flex-direction:column;align-items:flex-start;gap:10px;padding:16px;">
                 <div class="ciclico-info">
                     <strong>${t.categoria}</strong>
-                    <small>Devuelto por: ${t.devuelto_por_jefe || 'Jefe'} · ${t.fecha_devuelto_jefe ? new Date(t.fecha_devuelto_jefe).toLocaleString('es-CR') : '—'}</small>
-                    ${t.motivo_jefe ? `<small style="color:#f59e0b"><i class="fas fa-comment-alt"></i> ${t.motivo_jefe}</small>` : ''}
+                    <small>Devuelto por: ${window.ZENGO.esc(t.devuelto_por_jefe) || 'Jefe'} · ${t.fecha_devuelto_jefe ? new Date(t.fecha_devuelto_jefe).toLocaleString('es-CR') : '—'}</small>
+                    ${t.motivo_jefe ? `<small style="color:#f59e0b"><i class="fas fa-comment-alt"></i> ${window.ZENGO.esc(t.motivo_jefe)}</small>` : ''}
                 </div>
                 <button class="btn-primary" onclick="AuxiliarView.corregirCiclico('${t.id}')">
                     <i class="fas fa-edit"></i> Corregir

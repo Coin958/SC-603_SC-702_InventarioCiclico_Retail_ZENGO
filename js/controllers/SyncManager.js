@@ -98,7 +98,9 @@ const SyncManager = {
     // SINCRONIZAR PENDIENTES
     // ═══════════════════════════════════════════════════════════
     async syncPendientes() {
-        if (this.isSyncing || !navigator.onLine || !window.supabaseClient) return;
+        if (this.isSyncing) return { skipped: 'busy' };
+        if (!navigator.onLine) return { skipped: 'offline' };
+        if (!window.supabaseClient) return { skipped: 'no-client' };
 
         this.isSyncing = true;
 
@@ -107,7 +109,7 @@ const SyncManager = {
 
             if (pendientes.length === 0) {
                 this.isSyncing = false;
-                return;
+                return { total: 0, synced: 0, failed: 0, abandoned: 0 };
             }
 
             // Ordenar por prioridad de tabla, luego FIFO por id
@@ -263,11 +265,14 @@ const SyncManager = {
                 console.log(`Sync completado: ${syncedCount} exitosos, ${failedCount} fallidos, ${abandonedCount} abandonados`);
             }
 
+            this.isSyncing = false;
+            return { total: pendientes.length, synced: syncedCount, failed: failedCount, abandoned: abandonedCount };
+
         } catch (err) {
             console.error('Error en sincronización:', err);
+            this.isSyncing = false;
+            return { error: err.message };
         }
-
-        this.isSyncing = false;
     },
 
     // ═══════════════════════════════════════════════════════════

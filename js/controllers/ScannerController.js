@@ -18,7 +18,7 @@ const ScannerController = {
             if (!producto) {
                 const todos = await window.db.productos.toArray();
                 producto = todos.find(p =>
-                    p.upc?.includes(codigo) || p.sku?.toUpperCase().includes(codigo) ||
+                    p.upc?.toUpperCase().includes(codigo) || p.sku?.toUpperCase().includes(codigo) ||
                     p.descripcion?.toUpperCase().includes(codigo)
                 );
             }
@@ -42,12 +42,18 @@ const ScannerController = {
                     });
                 } catch (e) {}
 
-                // Ubicaciones desde TODAS las tareas en Supabase (sin filtro de estado)
+                // Ubicaciones desde TODAS las tareas en Supabase (sin filtro de estado).
+                // Se filtra server-side con el operador JSONB @> de Postgres
+                // (.contains) en vez de traer la tabla completa: antes esto
+                // descargaba el arreglo `productos` de CADA tarea del día
+                // en CADA escaneo — el camino más usado del sistema. Ver
+                // FIX_RENDIMIENTO_SQL.sql para el índice GIN que lo acompaña.
                 if (navigator.onLine && window.supabaseClient) {
                     try {
                         const { data: tareasData } = await window.supabaseClient
                             .from('tareas')
-                            .select('productos');
+                            .select('productos')
+                            .contains('productos', [{ upc: producto.upc }]);
                         if (tareasData) {
                             tareasData.forEach(t => {
                                 (t.productos || []).forEach(prod => {
@@ -78,7 +84,7 @@ const ScannerController = {
         try {
             const todos = await window.db.productos.toArray();
             return todos.filter(p =>
-                p.upc?.includes(termino) || p.sku?.toUpperCase().includes(termino) ||
+                p.upc?.toUpperCase().includes(termino) || p.sku?.toUpperCase().includes(termino) ||
                 p.descripcion?.toUpperCase().includes(termino)
             ).slice(0, 50);
         } catch (e) { return []; }
@@ -283,11 +289,11 @@ const ScannerController = {
             <div class="consulta-detalle-grid">
                 <div class="consulta-field">
                     <span class="consulta-field-label">UPC</span>
-                    <span class="consulta-field-value mono">${p.upc || '—'}</span>
+                    <span class="consulta-field-value mono">${window.ZENGO.esc(p.upc) || '—'}</span>
                 </div>
                 <div class="consulta-field">
                     <span class="consulta-field-label">SKU / NetSuite</span>
-                    <span class="consulta-field-value">${p.sku || '—'}</span>
+                    <span class="consulta-field-value">${window.ZENGO.esc(p.sku) || '—'}</span>
                 </div>
                 <div class="consulta-field">
                     <span class="consulta-field-label">Precio</span>
@@ -299,22 +305,22 @@ const ScannerController = {
                 </div>
                 <div class="consulta-field wide">
                     <span class="consulta-field-label">Descripción</span>
-                    <span class="consulta-field-value">${p.descripcion || '—'}</span>
+                    <span class="consulta-field-value">${window.ZENGO.esc(p.descripcion) || '—'}</span>
                 </div>
                 <div class="consulta-field">
                     <span class="consulta-field-label">Estatus</span>
-                    <span class="consulta-field-value">${p.estatus || '—'}</span>
+                    <span class="consulta-field-value">${window.ZENGO.esc(p.estatus) || '—'}</span>
                 </div>
                 <div class="consulta-field">
                     <span class="consulta-field-label">Tipo</span>
-                    <span class="consulta-field-value">${p.tipo || '—'}</span>
+                    <span class="consulta-field-value">${window.ZENGO.esc(p.tipo) || '—'}</span>
                 </div>
             </div>
             ${ubicaciones.length ? `
             <div class="consulta-ubicaciones">
                 <span class="consulta-field-label">Ubicaciones registradas</span>
                 <div class="consulta-ubic-tags">
-                    ${ubicaciones.map(u => `<span class="consulta-ubic-tag">${u}</span>`).join('')}
+                    ${ubicaciones.map(u => `<span class="consulta-ubic-tag">${window.ZENGO.esc(u)}</span>`).join('')}
                 </div>
             </div>` : ''}
         </div>`;

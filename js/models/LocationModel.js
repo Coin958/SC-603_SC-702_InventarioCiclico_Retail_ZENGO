@@ -6,32 +6,6 @@
 const LocationModel = {
 
     // ═══════════════════════════════════════════════════════════
-    // GUARDAR UBICACIÓN
-    // ═══════════════════════════════════════════════════════════
-    async saveLocation(upc, ubicacion, auxiliarId = null) {
-        try {
-            await window.db.ubicaciones_historico.add({
-                id: crypto.randomUUID(),
-                upc: upc,
-                ubicacion: ubicacion,
-                auxiliar_id: auxiliarId,
-                timestamp: new Date().toISOString()
-            });
-
-            // También actualizar el producto
-            const producto = await window.db.productos.where('upc').equals(upc).first();
-            if (producto) {
-                await window.db.productos.update(producto.id, { ubicacion: ubicacion });
-            }
-
-            return true;
-        } catch (err) {
-            console.error('Error guardando ubicación:', err);
-            return false;
-        }
-    },
-
-    // ═══════════════════════════════════════════════════════════
     // OBTENER HISTORIAL DE UBICACIONES
     // ═══════════════════════════════════════════════════════════
     async getHistorial(upc) {
@@ -46,18 +20,6 @@ const LocationModel = {
         } catch (err) {
             console.error('Error obteniendo historial:', err);
             return [];
-        }
-    },
-
-    // ═══════════════════════════════════════════════════════════
-    // OBTENER ÚLTIMA UBICACIÓN
-    // ═══════════════════════════════════════════════════════════
-    async getUltimaUbicacion(upc) {
-        try {
-            const historial = await this.getHistorial(upc);
-            return historial.length > 0 ? historial[0].ubicacion : null;
-        } catch (err) {
-            return null;
         }
     },
 
@@ -140,38 +102,14 @@ const LocationModel = {
         }
     },
 
-    // ═══════════════════════════════════════════════════════════
-    // SINCRONIZAR CON SUPABASE
-    // ═══════════════════════════════════════════════════════════
-    async syncToCloud() {
-        if (!navigator.onLine || !window.supabaseClient) return false;
-
-        try {
-            const ubicaciones = await window.db.ubicaciones_historico.toArray();
-
-            if (ubicaciones.length > 0) {
-                const { error } = await window.supabaseClient
-                    .from('ubicaciones_historico')
-                    .upsert(
-                        ubicaciones.map(u => ({
-                            id: u.id,
-                            upc: u.upc,
-                            ubicacion: u.ubicacion,
-                            auxiliar_id: u.auxiliar_id,
-                            timestamp: u.timestamp
-                        })),
-                        { onConflict: 'upc' }
-                    );
-
-                if (error) throw error;
-            }
-
-            return true;
-        } catch (err) {
-            console.error('Error sincronizando ubicaciones:', err);
-            return false;
-        }
-    }
+    // NOTA: existía aquí un syncToCloud() que nadie del proyecto invocaba
+    // (verificado con grep en todo el repo) — subía TODO el histórico
+    // local de ubicaciones de este dispositivo, incluyendo el `id`
+    // generado localmente, con upsert por `upc`. Si alguien lo hubiera
+    // activado sin revisar, dos dispositivos con una fila local para el
+    // mismo UPC podían pisarse el `id` entre sí. Se quitó por muerto y
+    // por ese riesgo latente. Cada ubicación real ya se sincroniza al
+    // vuelo vía upsertUbicacion() (usado por guardarUbicacionesTarea()).
 };
 
 // Exponer globalmente

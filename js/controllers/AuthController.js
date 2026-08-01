@@ -172,13 +172,17 @@ const AuthController = {
 
     getUser() {
         return this.currentUser;
-    },
-
-    hasPermission(permission) {
-        if (!this.currentUser) return false;
-        if (this.currentUser.role === 'ADMIN') return true;
-        return false;
     }
+
+    // NOTA: existía aquí un hasPermission(permission) que ignoraba el
+    // parámetro y solo devolvía "es Admin sí/no" — y ningún archivo del
+    // proyecto lo invocaba (verificado con grep en todo el repo). Daba una
+    // falsa sensación de que había control de permisos granular cuando no
+    // protegía ningún punto de decisión real. Se quitó en vez de dejarlo
+    // engañando a quien lo lea. Si se necesita control de permisos por
+    // acción, hay que diseñarlo desde los call sites reales (qué botón /
+    // qué función debe bloquearse para qué rol), no como una función
+    // suelta sin nadie que la consulte.
 };
 
 // Exponer globalmente

@@ -254,15 +254,6 @@ const RealtimeManager = {
     // ═══════════════════════════════════════════════════════════
     isOnline() {
         return this._estabaOnline;
-    },
-
-    // ═══════════════════════════════════════════════════════════
-    // LIMPIAR (para logout)
-    // ═══════════════════════════════════════════════════════════
-    destroy() {
-        this._desconectar();
-        if (this._heartbeatId) clearInterval(this._heartbeatId);
-        this._ocultarBannerOffline();
     }
 };
 
