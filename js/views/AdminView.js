@@ -1052,7 +1052,7 @@ const AdminView = {
         document.getElementById('ciclico-titulo').textContent = `${tarea.categoria || '—'} — ${tarea.auxiliar_nombre || '—'}`;
         document.getElementById('ciclico-meta').textContent =
             `Confirmado por ${tarea.aprobado_por || '—'} · ${tarea.fecha_aprobacion ? new Date(tarea.fecha_aprobacion).toLocaleString('es-CR') : ''}`;
-        document.getElementById('ciclico-admin-tbody').innerHTML = this.renderTablaAdmin(tarea.productos || []);
+        document.getElementById('ciclico-admin-tbody').innerHTML = this.renderTablaAdmin(tarea.productos || [], tarea.categoria);
     },
 
     cerrarCiclicoAdmin() {
@@ -1147,7 +1147,7 @@ const AdminView = {
         await this.loadCiclicosConfirmados();
     },
 
-    renderTablaAdmin(productos) {
+    renderTablaAdmin(productos, categoria) {
         if (!productos.length) return '<tr><td colspan="11" class="text-center">Sin productos</td></tr>';
         return productos.map((p, i) => {
             const total = p.total ?? (p.conteos?.reduce((s, c) => s + (c.cantidad || 0), 0) ?? 0);
@@ -1164,7 +1164,7 @@ const AdminView = {
                 <td class="mono" style="font-size:11px">${window.ZENGO.esc(p.upc) || '—'}</td>
                 <td>${window.ZENGO.esc(p.sku) || '—'}</td>
                 <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${window.ZENGO.esc(p.descripcion)}">${window.ZENGO.esc(p.descripcion) || '—'}</td>
-                <td>${p.categoria || '—'}</td>
+                <td>${window.ZENGO.esc(categoria) || '—'}</td>
                 <td>₡${(p.precio || 0).toLocaleString()}</td>
                 <td>${p.existencia || 0}</td>
                 <td><strong>${total}</strong></td>

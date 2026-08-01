@@ -18,6 +18,21 @@ const AdminController = {
             return;
         }
 
+        // Reimportar reemplaza TODA la tabla productos (delete + insert).
+        // Si un auxiliar está contando en este momento, la lista de productos
+        // de su categoría puede cambiarle a mitad de conteo — avisar antes.
+        try {
+            const activas = (await window.db.tareas.toArray()).filter(t => t.estado === 'en_progreso');
+            if (activas.length) {
+                const categorias = [...new Set(activas.map(t => t.categoria))].join(', ');
+                const continuar = await window.ZENGO?.confirm(
+                    `Hay auxiliares contando activamente en: ${categorias}.\n\nRecargar el Excel ahora puede cambiarles la lista de productos a mitad de conteo.\n\n¿Continuar de todos modos?`,
+                    'Conteos en curso'
+                );
+                if (!continuar) { event.target.value = ''; return; }
+            }
+        } catch (e) { /* no bloquear import si falla la verificación */ }
+
         window.ZENGO?.toast('Procesando archivo...', 'info');
 
         try {
