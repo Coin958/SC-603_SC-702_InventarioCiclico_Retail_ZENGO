@@ -161,6 +161,15 @@ const AdminController = {
                     </div>
                 </div>` : ''}
 
+                ${stats.omitidosIncompletos > 0 ? `
+                <div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:12px;padding:14px 18px;margin-bottom:24px;display:flex;align-items:flex-start;gap:12px;">
+                    <i class="fas fa-triangle-exclamation" style="color:#ef4444;font-size:16px;margin-top:2px;"></i>
+                    <div>
+                        <p style="color:#ef4444;font-weight:700;font-size:13px;margin:0 0 3px;">${stats.omitidosIncompletos} fila(s) descartadas por falta de UPC o descripción</p>
+                        <p style="color:#a8abb0;font-size:12px;margin:0;">Esas filas del archivo no se guardaron. Revisa el archivo de origen y corrige esas columnas si esperabas verlas en el catálogo.</p>
+                    </div>
+                </div>` : ''}
+
                 <!-- KPI Bento Grid -->
                 <section style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:28px;">
                     <div style="background:#171a1d;padding:22px 24px;border-radius:14px;">

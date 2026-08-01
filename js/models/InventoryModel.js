@@ -118,6 +118,10 @@ const InventoryModel = {
     // ═══════════════════════════════════════════════════════════
     processItems(data) {
         const validItems = data.filter(item => item.upc && item.descripcion);
+        // A diferencia de los UPC duplicados, estas filas nunca se avisaban
+        // al Admin — el conteo final de productos simplemente salía más
+        // bajo que el del archivo, sin ninguna pista de por qué.
+        const omitidosIncompletos = data.length - validItems.length;
 
         // La tabla `productos` tiene UNIQUE(upc) en Supabase. Un Excel de
         // NetSuite con UPCs repetidos (frecuente: multi-bodega, correcciones
@@ -168,13 +172,17 @@ const InventoryModel = {
             totalValue: totalValue,
             categories: this.categories.size,
             duplicadosDescartados: duplicados.length,
-            duplicadosUpc: duplicados
+            duplicadosUpc: duplicados,
+            omitidosIncompletos: omitidosIncompletos
         };
 
         console.log('✓ Productos procesados:', this.stats.total);
         console.log('✓ Categorías:', this.stats.categories);
         if (duplicados.length) {
             console.warn(`⚠ ${duplicados.length} fila(s) con UPC duplicado descartadas:`, duplicados);
+        }
+        if (omitidosIncompletos > 0) {
+            console.warn(`⚠ ${omitidosIncompletos} fila(s) sin UPC o sin descripción descartadas`);
         }
 
         return processedItems;
