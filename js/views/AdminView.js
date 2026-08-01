@@ -425,6 +425,15 @@ const AdminView = {
             return;
         }
 
+        // El botón Guardar vive fuera de <form id="usuario-form"> (está en
+        // el modal-footer), así que la validación nativa del navegador
+        // (type="email", required) nunca llega a bloquear nada — un email
+        // como "esto-no-es-un-email" pasaba sin problema. Se valida a mano.
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            window.ZENGO?.toast('El email no tiene un formato válido', 'error');
+            return;
+        }
+
         const userData = { nombre, apellido, email, role };
         if (password) userData.password = password;
 
