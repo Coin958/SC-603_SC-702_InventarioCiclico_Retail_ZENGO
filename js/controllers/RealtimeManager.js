@@ -48,6 +48,14 @@ const RealtimeManager = {
             console.warn('⚠ RealtimeManager: Supabase no soporta Realtime en este cliente');
             return;
         }
+        // _alConectarse() puede dispararse más de una vez sin un
+        // _alDesconectarse() de por medio (ej. evento 'online' del navegador
+        // + el heartbeat de 15s detectando conexión casi al mismo tiempo).
+        // Volver a llamar .on() sobre un canal que ya hizo .subscribe()
+        // lanza una excepción sin capturar que corta la función a medias,
+        // dejando el resto de canales sin suscribir y sin ningún aviso.
+        if (this._suscrito) return;
+        this._suscrito = true;
 
         // ── tareas ──────────────────────────────────────────────
         this._canales.tareas = window.supabaseClient
@@ -104,6 +112,7 @@ const RealtimeManager = {
     // DESCONECTAR SUSCRIPCIONES
     // ═══════════════════════════════════════════════════════════
     _desconectar() {
+        this._suscrito = false;
         if (!window.supabaseClient?.removeChannel) return;
         Object.values(this._canales).forEach(canal => {
             try { window.supabaseClient.removeChannel(canal); } catch (e) {}
