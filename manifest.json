@@ -1,7 +1,7 @@
 {
     "name": "ZENGO - Sistema de Inventario",
     "short_name": "ZENGO",
-    "description": "Sistema de Inventario CÃ­clico de Alto Rendimiento",
+    "description": "Sistema de Inventario Cíclico de Alto Rendimiento",
     "start_url": "/index.html",
     "display": "standalone",
     "background_color": "#020202",
