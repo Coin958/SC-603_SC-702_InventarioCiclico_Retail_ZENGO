@@ -90,24 +90,17 @@ function setupConnectionMonitor() {
     const updateStatus = () => {
         const isOnline = navigator.onLine;
         document.body.classList.toggle('offline-mode', !isOnline);
-        
-        // Actualizar indicador si existe
-        const syncDot = document.getElementById('sync-dot');
-        const syncText = document.getElementById('sync-text');
-        const syncContainer = document.getElementById('sync-container');
-        
-        if (syncDot && syncText && syncContainer) {
-            if (isOnline) {
-                syncContainer.classList.remove('offline');
-                syncContainer.classList.add('online');
-                syncText.textContent = 'ONLINE';
-            } else {
-                syncContainer.classList.remove('online');
-                syncContainer.classList.add('offline');
-                syncText.textContent = 'OFFLINE';
-            }
-        }
-        
+
+        // .sync-badge existe en las 3 vistas (Admin la marca ademas con
+        // id="sync-container", pero Jefe/Auxiliar no tienen esos ids —
+        // por eso se actualiza por clase, no por id, para cubrir las 3).
+        document.querySelectorAll('.sync-badge').forEach(badge => {
+            badge.classList.toggle('online', isOnline);
+            badge.classList.toggle('offline', !isOnline);
+            const texto = badge.querySelector('span');
+            if (texto) texto.textContent = isOnline ? 'ONLINE' : 'OFFLINE';
+        });
+
         // Si vuelve online, intentar sincronizar
         if (isOnline) {
             window.SyncManager.syncPendientes();

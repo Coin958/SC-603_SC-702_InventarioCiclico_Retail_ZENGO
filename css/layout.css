@@ -79,6 +79,7 @@
     padding: 6px 12px; border-radius: 20px; font-size: 11px;
     background: rgba(34,197,94,0.15); color: #22c55e;
 }
+.sync-badge.offline { background: rgba(239,68,68,0.15); color: #ef4444; }
 .sync-badge .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
 .btn-refresh {
     background: none; border: 1px solid rgba(255,255,255,0.1);
