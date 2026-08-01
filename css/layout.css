@@ -61,7 +61,7 @@
 }
 
 /* ═══ Main Content ═══ */
-.main-content { margin-left: 240px; flex: 1; padding: 20px; }
+.main-content { margin-left: 240px; flex: 1; min-width: 0; padding: 20px; }
 .sidebar.collapsed + .main-content { margin-left: 70px; }
 
 /* ═══ Top Header ═══ */
