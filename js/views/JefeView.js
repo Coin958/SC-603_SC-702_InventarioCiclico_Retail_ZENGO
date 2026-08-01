@@ -230,7 +230,7 @@ const JefeView = {
 
     async syncTareaToSupabase(tarea) {
         try {
-            if (!navigator.onLine || !window.supabaseClient || !tarea) return false;
+            if (!tarea) return false;
             const payload = {
                 productos: tarea.productos,
                 productos_contados: tarea.productos_contados,
@@ -241,6 +241,16 @@ const JefeView = {
                 devuelto_por_jefe: tarea.devuelto_por_jefe || null,
                 fecha_devuelto_jefe: tarea.fecha_devuelto_jefe || null
             };
+
+            if (!navigator.onLine || !window.supabaseClient) {
+                // Sin conexión: encolar para no perder la revisión del Jefe
+                // (ver la misma nota en AuxiliarView.syncTareaToSupabase).
+                await window.SyncManager?.addToQueue('tareas', 'update', {
+                    id: tarea.id,
+                    changes: payload
+                });
+                return 'queued';
+            }
             // Concurrencia optimista: solo escribe si nadie más tocó esta
             // fila desde que la leímos (misma `version`). Si 0 filas resultan
             // afectadas, alguien más ganó la carrera o la tarea ya no existe
@@ -523,7 +533,7 @@ const JefeView = {
         t.productos[pi].valor_hallazgo = precio * cantidad; // para KPI Admin
 
         await window.db.tareas.put(t);
-        await this.syncTareaToSupabase(t);
+        const synced = await this.syncTareaToSupabase(t);
 
         try {
             await window.LogController?.registrar({
@@ -554,8 +564,10 @@ const JefeView = {
         }
 
         window.ZENGO?.toast(
-            `Hallazgo aprobado ✓ · Precio unitario asignado: ₡${precio.toLocaleString()}`,
-            'success'
+            synced === 'queued'
+                ? `Hallazgo aprobado localmente (₡${precio.toLocaleString()}) — se sincronizará cuando haya conexión`
+                : `Hallazgo aprobado ✓ · Precio unitario asignado: ₡${precio.toLocaleString()}`,
+            synced === 'queued' ? 'warning' : 'success'
         );
         await this.loadDashboardData();
     },
@@ -572,7 +584,7 @@ const JefeView = {
         t.productos[pi].hallazgo_rechazado_color = 'purpura';
 
         await window.db.tareas.put(t);
-        await this.syncTareaToSupabase(t);
+        const synced = await this.syncTareaToSupabase(t);
 
         try {
             await window.LogController?.registrar({
@@ -600,7 +612,10 @@ const JefeView = {
             console.warn('Error log rechazo hallazgo:', err);
         }
 
-        window.ZENGO?.toast('Hallazgo rechazado', 'success');
+        window.ZENGO?.toast(
+            synced === 'queued' ? 'Hallazgo rechazado localmente — se sincronizará cuando haya conexión' : 'Hallazgo rechazado',
+            synced === 'queued' ? 'warning' : 'success'
+        );
         await this.loadDashboardData();
     },
 
@@ -1092,7 +1107,7 @@ const JefeView = {
         // Guardar ubicaciones canónicas (upsert por UPC) antes de cerrar
         await window.LocationModel.guardarUbicacionesTarea(this.revisionActual);
         await window.db.tareas.put(this.revisionActual);
-        await this.syncTareaToSupabase(this.revisionActual);
+        const synced = await this.syncTareaToSupabase(this.revisionActual);
         // Actualizar ranking del auxiliar (datos permanentes)
         await this.calcularYGuardarEstadisticas(this.revisionActual);
 
@@ -1114,7 +1129,10 @@ const JefeView = {
             });
         } catch (e) { console.warn('Error log entrega admin:', e); }
 
-        window.ZENGO?.toast('Entregado a Administracion ✓', 'success');
+        window.ZENGO?.toast(
+            synced === 'queued' ? 'Entregado localmente — se sincronizará con Administración cuando haya conexión' : 'Entregado a Administracion ✓',
+            synced === 'queued' ? 'warning' : 'success'
+        );
         this.revisionActual = null;
         this.showSection('mando');
         await this.loadDashboardData();

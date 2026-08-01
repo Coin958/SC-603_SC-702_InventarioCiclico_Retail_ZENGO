@@ -216,7 +216,30 @@ const AuxiliarView = {
 
     async syncTareaToSupabase() {
         try {
-            if (!navigator.onLine || !window.supabaseClient || !this.tareaActual) return false;
+            if (!this.tareaActual) return false;
+
+            if (!navigator.onLine || !window.supabaseClient) {
+                // Sin conexión: encolar en vez de simplemente abandonar. Antes
+                // esto retornaba false sin encolar nada y los callers ni
+                // siquiera revisaban el resultado — el conteo quedaba SOLO en
+                // el Dexie de este dispositivo. Si el dispositivo nunca volvía
+                // a sincronizar esta tarea antes de que otro (Jefe/otro
+                // dispositivo) la modificara, el conteo offline se perdía
+                // para siempre sin ningún aviso — justo el tipo de perdida
+                // silenciosa que un escenario real de 3 laptops con WiFi
+                // inestable puede disparar.
+                await window.SyncManager?.addToQueue('tareas', 'update', {
+                    id: this.tareaActual.id,
+                    changes: {
+                        productos: this.tareaActual.productos,
+                        productos_contados: this.tareaActual.productos_contados,
+                        estado: this.tareaActual.estado,
+                        cronometro_inicio: this.tareaActual.cronometro_inicio || null,
+                        fecha_finalizacion: this.tareaActual.fecha_finalizacion || null
+                    }
+                });
+                return 'queued';
+            }
             // Concurrencia optimista: solo escribe si nadie más tocó esta
             // fila desde que la leímos (misma `version`). Si 0 filas resultan
             // afectadas, un Jefe la modificó primero o la tarea ya no existe
@@ -490,7 +513,7 @@ const AuxiliarView = {
         if (!this.cronometroInicio) await this.iniciarCronometro();
 
         await window.db.tareas.put(this.tareaActual);
-        await this.syncTareaToSupabase();
+        const synced = await this.syncTareaToSupabase();
 
         try {
             const session = JSON.parse(localStorage.getItem('zengo_session') || '{}');
@@ -512,7 +535,9 @@ const AuxiliarView = {
         }
 
         this.closeModal(); this.renderProductos(); this.actualizarProgreso();
-        window.ZENGO?.toast('Conteo guardado ✓', 'success');
+        if (synced === true) window.ZENGO?.toast('Conteo guardado ✓', 'success');
+        else if (synced === 'queued') window.ZENGO?.toast('Conteo guardado localmente — se sincronizará cuando haya conexión', 'warning');
+        // synced === false: _resolverConflictoTarea() ya mostró su propio aviso
     },
 
     async editarConteo(pi, ci) {
@@ -529,7 +554,7 @@ const AuxiliarView = {
         p.diferencia = p.total - p.existencia;
 
         await window.db.tareas.put(this.tareaActual);
-        await this.syncTareaToSupabase();
+        const synced = await this.syncTareaToSupabase();
 
         try {
             await window.LogController?.registrar({
@@ -557,7 +582,8 @@ const AuxiliarView = {
 
         this.renderProductos();
         this.actualizarProgreso();
-        window.ZENGO?.toast('Editado ✓', 'success');
+        if (synced === true) window.ZENGO?.toast('Editado ✓', 'success');
+        else if (synced === 'queued') window.ZENGO?.toast('Editado localmente — se sincronizará cuando haya conexión', 'warning');
     },
 
     async eliminarConteo(pi, ci) {
@@ -587,7 +613,7 @@ const AuxiliarView = {
         ).length;
 
         await window.db.tareas.put(this.tareaActual);
-        await this.syncTareaToSupabase();
+        const synced = await this.syncTareaToSupabase();
 
         try {
             await window.LogController?.registrar({
@@ -613,7 +639,8 @@ const AuxiliarView = {
 
         this.renderProductos();
         this.actualizarProgreso();
-        window.ZENGO?.toast('Eliminado', 'success');
+        if (synced === true) window.ZENGO?.toast('Eliminado', 'success');
+        else if (synced === 'queued') window.ZENGO?.toast('Eliminado localmente — se sincronizará cuando haya conexión', 'warning');
     },
 
     // ═══ HALLAZGOS ═══
@@ -663,7 +690,7 @@ const AuxiliarView = {
         const tareaId = this.tareaActual.id; // capturado antes del sync (ver nota en guardarConteo)
 
         await window.db.tareas.put(this.tareaActual);
-        await this.syncTareaToSupabase();
+        const synced = await this.syncTareaToSupabase();
 
         try {
             await window.LogController?.registrar({
@@ -690,7 +717,8 @@ const AuxiliarView = {
         this.closeModal();
         this.renderProductos();
         this.actualizarProgreso();
-        window.ZENGO?.toast('Hallazgo reportado — esperando aprobación del Jefe', 'success');
+        if (synced === true) window.ZENGO?.toast('Hallazgo reportado — esperando aprobación del Jefe', 'success');
+        else if (synced === 'queued') window.ZENGO?.toast('Hallazgo guardado localmente — se enviará al Jefe cuando haya conexión', 'warning');
     },
 
     // ═══ PROGRESO Y FINALIZACION ═══
