@@ -62,7 +62,18 @@ const RealtimeManager = {
             .channel('zengo-tareas')
             .on('postgres_changes',
                 { event: '*', schema: 'public', table: 'tareas' },
-                (payload) => {
+                async (payload) => {
+                    // Eco de nuestro propio guardado: si ya tenemos esta
+                    // version localmente, no es un cambio de "otro usuario".
+                    const nuevo = payload.new;
+            
+            
+            
+            
+                    if (nuevo?.id && window.db?.tareas) {
+                        const local = await window.db.tareas.get(nuevo.id);
+                        if (local && local.version >= nuevo.version) return;
+                    }
                     this._despachar('zengo:tarea-cambio', {
                         tipo:    payload.eventType,   // INSERT | UPDATE | DELETE
                         nuevo:   payload.new,
