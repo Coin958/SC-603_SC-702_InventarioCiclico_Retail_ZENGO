@@ -1080,6 +1080,12 @@ const AdminView = {
         if (!this._ciclicoDetalle) return;
         const motivo = prompt('Motivo del rechazo (requerido):');
         if (!motivo || !motivo.trim()) return;
+
+        if (!navigator.onLine || !window.supabaseClient) {
+            window.ZENGO?.toast('Sin conexión: no se puede devolver al Jefe sin internet', 'warning');
+            return;
+        }
+
         const session = JSON.parse(localStorage.getItem('zengo_session') || '{}');
         const tarea = this._ciclicoDetalle;
         const cambios = {
@@ -1089,10 +1095,13 @@ const AdminView = {
             fecha_rechazo: new Date().toISOString()
         };
         try {
-            if (navigator.onLine && window.supabaseClient) {
-                await window.supabaseClient.from('tareas').update(cambios).eq('id', tarea.id);
-            }
-        } catch (e) { console.error('Error sync rechazo admin:', e); }
+            const { error } = await window.supabaseClient.from('tareas').update(cambios).eq('id', tarea.id);
+            if (error) throw error;
+        } catch (e) {
+            console.error('Error sync rechazo admin:', e);
+            window.ZENGO?.toast('No se pudo devolver el cíclico', 'error');
+            return;
+        }
         await window.db.tareas.update(tarea.id, cambios);
 
         try {
@@ -1131,15 +1140,23 @@ const AdminView = {
         );
         if (!ok) return;
 
+        if (!navigator.onLine || !window.supabaseClient) {
+            window.ZENGO?.toast('Sin conexión: no se puede anular sin internet', 'warning');
+            return;
+        }
+
         const session = JSON.parse(localStorage.getItem('zengo_session') || '{}');
         const tarea = this._ciclicoDetalle;
         const estadoAnterior = tarea.estado;
 
         try {
-            if (navigator.onLine && window.supabaseClient) {
-                await window.supabaseClient.from('tareas').update({ estado: 'cancelado' }).eq('id', tarea.id);
-            }
-        } catch (e) { console.error('Error anulando cíclico:', e); }
+            const { error } = await window.supabaseClient.from('tareas').update({ estado: 'cancelado' }).eq('id', tarea.id);
+            if (error) throw error;
+        } catch (e) {
+            console.error('Error anulando cíclico:', e);
+            window.ZENGO?.toast('No se pudo anular el cíclico', 'error');
+            return;
+        }
         await window.db.tareas.update(tarea.id, { estado: 'cancelado' });
 
         try {
