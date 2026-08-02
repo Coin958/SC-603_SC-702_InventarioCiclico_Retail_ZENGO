@@ -216,6 +216,7 @@ const LogController = {
                     tabla,
                     accion,
                     usuario_id,
+                    usuario_nombre,
                     mensaje,
                     timestamp: payload.timestamp
                 });
