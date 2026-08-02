@@ -190,6 +190,9 @@ const AdminView = {
                     <div id="ciclicos-lista-wrap">
                         <div class="section-header">
                             <h2><i class="fas fa-clipboard-check"></i> Cíclicos Confirmados</h2>
+                            <button class="btn-secondary" onclick="AdminController.exportDiferencias()">
+                                <i class="fas fa-file-excel"></i> Exportar Diferencias
+                            </button>
                         </div>
                         <div class="glass ciclicos-card">
                             <div id="ciclicos-lista">
