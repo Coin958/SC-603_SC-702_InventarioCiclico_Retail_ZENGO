@@ -985,6 +985,8 @@ const AdminView = {
         if (result?.ok) {
             window.ZENGO?.toast('Ciclo diario cerrado correctamente', 'success');
             await this.loadDashboardData();
+        } else if (result?.skipped === 'offline') {
+            window.ZENGO?.toast('Sin conexión: no se puede cerrar el ciclo sin internet', 'warning');
         } else {
             window.ZENGO?.toast(result?.error || 'No se pudo cerrar el ciclo', 'error');
         }

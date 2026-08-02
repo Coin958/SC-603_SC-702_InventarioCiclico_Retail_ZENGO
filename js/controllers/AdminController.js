@@ -413,8 +413,12 @@ const AdminController = {
 
     async cerrarCicloDiario() {
         try {
+            if (!navigator.onLine || !window.supabaseClient) {
+                return { ok: false, skipped: 'offline', error: 'Sin conexión: el cierre de ciclo requiere internet para no desincronizar Supabase' };
+            }
+
             // 1. Limpiar Supabase primero
-            if (navigator.onLine && window.supabaseClient) {
+            {
                 const { error: errorConteos } = await window.supabaseClient
                     .from('conteos_realizados')
                     .delete()
