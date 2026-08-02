@@ -803,9 +803,10 @@ const AdminView = {
             catMap[cat] += (p.precio || 0) * (p.existencia || 0);
         });
         const allEntries = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
-        const total = allEntries.reduce((s, e) => s + e[1], 0) || 1;
+        const totalReal = allEntries.reduce((s, e) => s + e[1], 0);
+        const total = totalReal || 1;
         let entries = allEntries.slice(0, 5);
-        if (entries.length === 0) entries = [['SIN DATOS', 1]];
+        if (entries.length === 0) entries = [['SIN DATOS', 0]];
         const colors = ['#C8102E', '#10b981', '#3b82f6', '#f59e0b', '#94a3b8'];
 
         container.innerHTML = entries.map((e, i) => {
@@ -828,7 +829,7 @@ const AdminView = {
         }).join('') + `
             <div class="cdc-footer" style="margin-top:20px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.06);display:flex;justify-content:space-between;align-items:center;">
                 <span class="cdc-footer-label" style="font-size:10px;font-weight:700;color:rgba(255,255,255,0.35);text-transform:uppercase;">Valor Total Cargado</span>
-                <span class="cdc-footer-val" style="font-size:14px;font-weight:900;color:#fff;">₡${Math.round(total).toLocaleString()}</span>
+                <span class="cdc-footer-val" style="font-size:14px;font-weight:900;color:#fff;">₡${Math.round(totalReal).toLocaleString()}</span>
             </div>
         `;
         setTimeout(() => {
@@ -923,7 +924,7 @@ const AdminView = {
         const txtDim = isLight ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.45)';
         const totalProds = productos.length || 1;
         const contados = new Set(conteos.map(c => c.upc)).size;
-        const pct = Math.min(Math.round((contados / totalProds) * 100), 100);
+        const pct = productos.length ? Math.min(Math.round((contados / totalProds) * 100), 100) : 0;
         const r = 75, cx = 100, cy = 100;
         const circ = 2 * Math.PI * r;
         const fillLen = (pct / 100) * circ;
@@ -937,7 +938,7 @@ const AdminView = {
                 </circle>
                 <text x="${cx}" y="${cy - 6}" text-anchor="middle" fill="${txtColor}" font-size="28" font-weight="900">${pct}%</text>
                 <text x="${cx}" y="${cy + 12}" text-anchor="middle" fill="${txtDim}" font-size="8" font-weight="700" letter-spacing="1">COBERTURA</text>
-                <text x="${cx}" y="205" text-anchor="middle" fill="${txtDim}" font-size="9" font-weight="600">${contados.toLocaleString()} de ${totalProds.toLocaleString()} productos contados</text>
+                <text x="${cx}" y="205" text-anchor="middle" fill="${txtDim}" font-size="9" font-weight="600">${contados.toLocaleString()} de ${productos.length.toLocaleString()} productos contados</text>
             </svg>
         `;
     },
