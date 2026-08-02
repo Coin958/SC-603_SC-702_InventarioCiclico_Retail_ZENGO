@@ -1152,15 +1152,23 @@ const JefeView = {
         );
         if (!ok) return;
 
+        if (!navigator.onLine || !window.supabaseClient) {
+            window.ZENGO?.toast('Sin conexión: no se puede anular sin internet', 'warning');
+            return;
+        }
+
         const s = JSON.parse(localStorage.getItem('zengo_session') || '{}');
         const tarea = this.revisionActual;
         const estadoAnterior = tarea.estado;
 
         try {
-            if (navigator.onLine && window.supabaseClient) {
-                await window.supabaseClient.from('tareas').update({ estado: 'cancelado' }).eq('id', tarea.id);
-            }
-        } catch (e) { console.error('Error anulando cíclico:', e); }
+            const { error } = await window.supabaseClient.from('tareas').update({ estado: 'cancelado' }).eq('id', tarea.id);
+            if (error) throw error;
+        } catch (e) {
+            console.error('Error anulando cíclico:', e);
+            window.ZENGO?.toast('No se pudo anular el cíclico', 'error');
+            return;
+        }
         await window.db.tareas.update(tarea.id, { estado: 'cancelado' });
 
         try {
