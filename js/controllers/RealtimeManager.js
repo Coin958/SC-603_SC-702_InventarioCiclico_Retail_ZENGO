@@ -17,9 +17,9 @@
 
 const RealtimeManager = {
 
-    _canales:      {},
-    _heartbeatId:  null,
-    _bannerEl:     null,
+    _canales: {},
+    _heartbeatId: null,
+    _bannerEl: null,
     _estabaOnline: true,
 
     // ═══════════════════════════════════════════════════════════
@@ -34,7 +34,7 @@ const RealtimeManager = {
             this._suscribirTablas();
         }
 
-        window.addEventListener('online',  () => this._alConectarse());
+        window.addEventListener('online', () => this._alConectarse());
         window.addEventListener('offline', () => this._alDesconectarse());
 
         console.log('✓ RealtimeManager inicializado');
@@ -63,20 +63,14 @@ const RealtimeManager = {
             .on('postgres_changes',
                 { event: '*', schema: 'public', table: 'tareas' },
                 async (payload) => {
-                    // Eco de nuestro propio guardado: si ya tenemos esta
-                    // version localmente, no es un cambio de "otro usuario".
                     const nuevo = payload.new;
-            
-            
-            
-            
                     if (nuevo?.id && window.db?.tareas) {
                         const local = await window.db.tareas.get(nuevo.id);
-                        if (local && local.version >= nuevo.version) return;
+                        if (local && local.version >= nuevo.version) return; // eco de nuestro propio guardado
                     }
                     this._despachar('zengo:tarea-cambio', {
-                        tipo:    payload.eventType,   // INSERT | UPDATE | DELETE
-                        nuevo:   payload.new,
+                        tipo: payload.eventType,   // INSERT | UPDATE | DELETE
+                        nuevo: payload.new,
                         antiguo: payload.old
                     });
                 })
@@ -89,8 +83,8 @@ const RealtimeManager = {
                 { event: '*', schema: 'public', table: 'hallazgos' },
                 (payload) => {
                     this._despachar('zengo:hallazgo-cambio', {
-                        tipo:    payload.eventType,
-                        nuevo:   payload.new,
+                        tipo: payload.eventType,
+                        nuevo: payload.new,
                         antiguo: payload.old
                     });
                 })
@@ -126,7 +120,7 @@ const RealtimeManager = {
         this._suscrito = false;
         if (!window.supabaseClient?.removeChannel) return;
         Object.values(this._canales).forEach(canal => {
-            try { window.supabaseClient.removeChannel(canal); } catch (e) {}
+            try { window.supabaseClient.removeChannel(canal); } catch (e) { }
         });
         this._canales = {};
     },
